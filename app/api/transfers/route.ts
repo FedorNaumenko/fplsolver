@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { FPLApi } from '@/lib/api/fpl';
 import type { Player, Fixture } from '@/lib/types';
 import { generateTransferSuggestions } from '@/lib/calculations/transferSuggestions';
+import { planMultipleTransfers } from '@/lib/calculations/multiTransfer';
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
@@ -34,9 +35,27 @@ export async function GET(request: NextRequest) {
       .filter((p): p is Player => Boolean(p));
 
     const bank: number = picks.entry_history.bank;
-    const suggestions = generateTransferSuggestions(squad, allPlayers, typedFixtures, bank, currentGameweek);
 
-    return NextResponse.json({ suggestions });
+    // Single transfer suggestions (existing)
+    const suggestions = generateTransferSuggestions(
+      squad, allPlayers, typedFixtures, bank, currentGameweek
+    );
+
+    // Multi-transfer plans — greedy sequential, assumes 1 free transfer
+    const FREE_TRANSFERS = 1;
+
+    const plan2 = planMultipleTransfers(
+      squad, allPlayers, typedFixtures, bank, currentGameweek, FREE_TRANSFERS, 2
+    );
+    const plan3 = planMultipleTransfers(
+      squad, allPlayers, typedFixtures, bank, currentGameweek, FREE_TRANSFERS, 3
+    );
+    // Wildcard: all transfers free, plan up to 8 improvements
+    const wildcard = planMultipleTransfers(
+      squad, allPlayers, typedFixtures, bank, currentGameweek, 99, 8
+    );
+
+    return NextResponse.json({ suggestions, plan2, plan3, wildcard });
   } catch (error) {
     console.error('Transfers fetch error:', error);
     return NextResponse.json(

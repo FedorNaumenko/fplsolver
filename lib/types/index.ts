@@ -114,6 +114,20 @@ export interface PlayerComparison {
   recommendation: 'player1' | 'player2' | 'neutral';
 }
 
+export interface PlannedTransfer {
+  playerOut: Player;
+  playerIn: Player;
+  costDiff: number;  // price difference in tenths (positive = costs more)
+  xPtsGain: number;  // expected points gained from this one transfer
+}
+
+export interface MultiTransferPlan {
+  transfers: PlannedTransfer[];
+  totalXPtsGain: number;
+  pointsHit: number;    // 4 pts per transfer beyond free transfers
+  netGain: number;      // totalXPtsGain - pointsHit
+}
+
 export interface PlayerFixture {
   event: number;
   event_name: string;

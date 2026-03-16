@@ -3,8 +3,8 @@
 import { useState } from 'react';
 import TeamInput from '@/components/TeamInput';
 import SquadDisplay from '@/components/SquadDisplay';
-import TransferSuggestions from '@/components/TransferSuggestions';
-import type { Player, Team, PickInfo, TransferSuggestion } from '@/lib/types';
+import TransferPlanner from '@/components/TransferPlanner';
+import type { Player, Team, PickInfo, TransferSuggestion, MultiTransferPlan } from '@/lib/types';
 
 interface TeamData {
   squad: Player[];
@@ -16,9 +16,16 @@ interface TeamData {
   managerName: string;
 }
 
+interface TransfersData {
+  suggestions: TransferSuggestion[];
+  plan2: MultiTransferPlan;
+  plan3: MultiTransferPlan;
+  wildcard: MultiTransferPlan;
+}
+
 export default function Home() {
   const [teamData, setTeamData] = useState<TeamData | null>(null);
-  const [suggestions, setSuggestions] = useState<TransferSuggestion[] | null>(null);
+  const [transfersData, setTransfersData] = useState<TransfersData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -26,7 +33,7 @@ export default function Home() {
     setLoading(true);
     setError(null);
     setTeamData(null);
-    setSuggestions(null);
+    setTransfersData(null);
 
     try {
       const [teamRes, transfersRes] = await Promise.all([
@@ -41,7 +48,7 @@ export default function Home() {
       if (!transfersRes.ok) throw new Error(transfersJson.error || 'Failed to load suggestions');
 
       setTeamData(teamJson);
-      setSuggestions(transfersJson.suggestions);
+      setTransfersData(transfersJson);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Something went wrong');
     } finally {
@@ -67,11 +74,15 @@ export default function Home() {
           </div>
         )}
 
-        {teamData && (
-          <>
-            <SquadDisplay {...teamData} />
-            {suggestions && <TransferSuggestions suggestions={suggestions} />}
-          </>
+        {teamData && <SquadDisplay {...teamData} />}
+
+        {transfersData && (
+          <TransferPlanner
+            suggestions={transfersData.suggestions}
+            plan2={transfersData.plan2}
+            plan3={transfersData.plan3}
+            wildcard={transfersData.wildcard}
+          />
         )}
       </main>
     </div>
