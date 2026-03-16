@@ -34,7 +34,7 @@ export async function GET(request: NextRequest) {
       .filter((p): p is Player => Boolean(p));
 
     const bank: number = picks.entry_history.bank;
-    const suggestions = generateTransferSuggestions(squad, allPlayers, typedFixtures, bank);
+    const suggestions = generateTransferSuggestions(squad, allPlayers, typedFixtures, bank, currentGameweek);
 
     return NextResponse.json({ suggestions });
   } catch (error) {

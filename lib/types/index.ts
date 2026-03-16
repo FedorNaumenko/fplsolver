@@ -114,6 +114,14 @@ export interface PlayerComparison {
   recommendation: 'player1' | 'player2' | 'neutral';
 }
 
+export interface PickInfo {
+  playerId: number;
+  position: number;      // 1-15 (1-11 = starters, 12-15 = bench)
+  isCaptain: boolean;
+  isViceCaptain: boolean;
+  multiplier: number;    // 2 for captain, 1 otherwise
+}
+
 export type Position = 'GK' | 'DEF' | 'MID' | 'FWD';
 
 export interface FilterOptions {

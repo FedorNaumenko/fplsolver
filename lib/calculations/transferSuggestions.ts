@@ -1,8 +1,30 @@
 import type { Player, Fixture, TransferSuggestion } from '../types';
 
+/**
+ * Returns a 0–1 multiplier based on average minutes played per gameweek.
+ * Penalises rotation risks, part-timers, and players who haven't featured.
+ *
+ * Scale (avg min/GW):
+ *   >= 60  → 1.00  (nailed starter)
+ *   45–60  → 0.80  (usually plays, occasional sub)
+ *   30–45  → 0.50  (rotation risk)
+ *   15–30  → 0.25  (impact sub)
+ *   <  15  → 0.00  (ignore — not worth recommending)
+ */
+function getMinutesMultiplier(player: Player, currentGameweek: number): number {
+  if (currentGameweek === 0 || player.minutes === 0) return 0;
+  const avgMins = player.minutes / currentGameweek;
+  if (avgMins >= 60) return 1.0;
+  if (avgMins >= 45) return 0.8;
+  if (avgMins >= 30) return 0.5;
+  if (avgMins >= 15) return 0.25;
+  return 0;
+}
+
 function calculatePlayerExpectedPoints(
   player: Player,
   fixtures: Fixture[],
+  currentGameweek: number,
   numGW: number = 3
 ): number {
   const playerFixtures = fixtures
@@ -19,7 +41,9 @@ function calculatePlayerExpectedPoints(
     }, 0) / playerFixtures.length;
 
   const difficultyMultiplier = (6 - avgDifficulty) / 3;
-  return Math.round(form * playerFixtures.length * difficultyMultiplier * 10) / 10;
+  const minutesMultiplier = getMinutesMultiplier(player, currentGameweek);
+
+  return Math.round(form * playerFixtures.length * difficultyMultiplier * minutesMultiplier * 10) / 10;
 }
 
 export function generateTransferSuggestions(
@@ -27,6 +51,7 @@ export function generateTransferSuggestions(
   allPlayers: Player[],
   fixtures: Fixture[],
   bankInTenths: number,
+  currentGameweek: number,
   numGameweeks: number = 3,
   topN: number = 5
 ): TransferSuggestion[] {
@@ -35,7 +60,7 @@ export function generateTransferSuggestions(
 
   for (const playerOut of squad) {
     const maxSpend = playerOut.now_cost + bankInTenths;
-    const expectedOut = calculatePlayerExpectedPoints(playerOut, fixtures, numGameweeks);
+    const expectedOut = calculatePlayerExpectedPoints(playerOut, fixtures, currentGameweek, numGameweeks);
 
     const best = allPlayers
       .filter(
@@ -45,7 +70,10 @@ export function generateTransferSuggestions(
           p.now_cost <= maxSpend &&
           p.status === 'a'
       )
-      .map(p => ({ player: p, ep: calculatePlayerExpectedPoints(p, fixtures, numGameweeks) }))
+      .map(p => ({
+        player: p,
+        ep: calculatePlayerExpectedPoints(p, fixtures, currentGameweek, numGameweeks),
+      }))
       .sort((a, b) => b.ep - a.ep)[0];
 
     if (!best) continue;
@@ -61,12 +89,15 @@ export function generateTransferSuggestions(
         ? `costs £${(costDiff / 10).toFixed(1)}m more`
         : `saves £${(Math.abs(costDiff) / 10).toFixed(1)}m`;
 
+    const avgMinsIn = currentGameweek > 0 ? Math.round(best.player.minutes / currentGameweek) : 0;
+    const avgMinsOut = currentGameweek > 0 ? Math.round(playerOut.minutes / currentGameweek) : 0;
+
     suggestions.push({
       playerOut,
       playerIn: best.player,
       cost: costDiff,
       expectedPointsGain: gain,
-      reasoning: `${best.player.web_name} (form ${parseFloat(best.player.form).toFixed(1)}, xPts ${best.ep}) replaces ${playerOut.web_name} (form ${parseFloat(playerOut.form).toFixed(1)}, xPts ${expectedOut}) — ${costStr}`,
+      reasoning: `${best.player.web_name} (form ${parseFloat(best.player.form).toFixed(1)}, ~${avgMinsIn} min/GW, xPts ${best.ep}) replaces ${playerOut.web_name} (form ${parseFloat(playerOut.form).toFixed(1)}, ~${avgMinsOut} min/GW, xPts ${expectedOut}) — ${costStr}`,
       priority: gain >= 5 ? 'high' : gain >= 2 ? 'medium' : 'low',
     });
   }

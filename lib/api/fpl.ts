@@ -9,7 +9,9 @@ export class FPLApi {
    * This is the main endpoint - fetch once and cache
    */
   static async getBootstrapStatic() {
-    const response = await fetch(`${FPL_API_BASE}/bootstrap-static/`);
+    const response = await fetch(`${FPL_API_BASE}/bootstrap-static/`, {
+      next: { revalidate: 300 }, // cache for 5 minutes — data rarely changes mid-session
+    });
     if (!response.ok) {
       throw new Error('Failed to fetch bootstrap data');
     }

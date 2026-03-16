@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { FPLApi } from '@/lib/api/fpl';
-import type { Player, Team } from '@/lib/types';
+import type { Player, Team, PickInfo } from '@/lib/types';
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
@@ -26,13 +26,23 @@ export async function GET(request: NextRequest) {
     const allPlayers: Player[] = bootstrap.elements;
     const teams: Team[] = bootstrap.teams;
 
-    const squadIds: number[] = picks.picks.map((p: { element: number }) => p.element);
-    const squad = squadIds
-      .map((id: number) => allPlayers.find((p: Player) => p.id === id))
+    const rawPicks: Array<{ element: number; position: number; multiplier: number; is_captain: boolean; is_vice_captain: boolean }> = picks.picks;
+
+    const squad = rawPicks
+      .map(p => allPlayers.find((pl: Player) => pl.id === p.element))
       .filter((p): p is Player => Boolean(p));
+
+    const pickInfos: PickInfo[] = rawPicks.map(p => ({
+      playerId: p.element,
+      position: p.position,
+      isCaptain: p.is_captain,
+      isViceCaptain: p.is_vice_captain,
+      multiplier: p.multiplier,
+    }));
 
     return NextResponse.json({
       squad,
+      picks: pickInfos,
       budget: picks.entry_history.bank,
       teamValue: picks.entry_history.value,
       currentGameweek,

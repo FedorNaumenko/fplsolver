@@ -4,10 +4,11 @@ import { useState } from 'react';
 import TeamInput from '@/components/TeamInput';
 import SquadDisplay from '@/components/SquadDisplay';
 import TransferSuggestions from '@/components/TransferSuggestions';
-import type { Player, Team, TransferSuggestion } from '@/lib/types';
+import type { Player, Team, PickInfo, TransferSuggestion } from '@/lib/types';
 
 interface TeamData {
   squad: Player[];
+  picks: PickInfo[];
   budget: number;
   teamValue: number;
   currentGameweek: number;
