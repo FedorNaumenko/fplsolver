@@ -114,6 +114,29 @@ export interface PlayerComparison {
   recommendation: 'player1' | 'player2' | 'neutral';
 }
 
+export interface PlayerFixture {
+  event: number;
+  event_name: string;
+  is_home: boolean;
+  difficulty: number;
+  kickoff_time: string;
+  opponent_short_name: string;
+}
+
+export interface PlayerHistoryEntry {
+  round: number;
+  opponent_short_name: string;
+  was_home: boolean;
+  total_points: number;
+  minutes: number;
+  goals_scored: number;
+  assists: number;
+  clean_sheets: number;
+  bonus: number;
+  yellow_cards: number;
+  red_cards: number;
+}
+
 export interface PickInfo {
   playerId: number;
   position: number;      // 1-15 (1-11 = starters, 12-15 = bench)
