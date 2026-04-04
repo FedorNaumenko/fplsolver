@@ -16,11 +16,11 @@ export default function TeamInput({ onLoad, loading }: Props) {
   };
 
   return (
-    <div className="bg-white rounded-lg shadow p-6">
-      <h2 className="text-lg font-semibold mb-1">Load Your Team</h2>
-      <p className="text-sm text-gray-500 mb-4">
+    <div className="rounded-xl shadow-lg p-6" style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)' }}>
+      <h2 className="text-lg font-semibold mb-1 text-white">Load Your Team</h2>
+      <p className="text-sm mb-4" style={{ color: 'rgba(255,255,255,0.6)' }}>
         Find your Manager ID in the FPL app under Points — it appears in the URL:{' '}
-        <span className="font-mono text-xs bg-gray-100 px-1 py-0.5 rounded">
+        <span className="font-mono text-xs px-1 py-0.5 rounded" style={{ background: 'rgba(255,255,255,0.1)', color: '#04f5ff' }}>
           fantasy.premierleague.com/entry/<strong>1234567</strong>/event/...
         </span>
       </p>
@@ -30,16 +30,23 @@ export default function TeamInput({ onLoad, loading }: Props) {
           value={value}
           onChange={e => setValue(e.target.value)}
           placeholder="Manager ID (e.g. 1234567)"
-          className="flex-1 border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-green-500"
+          className="flex-1 rounded-lg px-4 py-2 focus:outline-none text-white placeholder-gray-400"
+          style={{
+            background: 'rgba(255,255,255,0.1)',
+            border: '1px solid rgba(255,255,255,0.2)',
+          }}
+          onFocus={e => (e.currentTarget.style.borderColor = '#04f5ff')}
+          onBlur={e => (e.currentTarget.style.borderColor = 'rgba(255,255,255,0.2)')}
           disabled={loading}
           min="1"
         />
         <button
           type="submit"
           disabled={loading || !value.trim()}
-          className="bg-green-600 text-white px-6 py-2 rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed font-medium transition-colors"
+          className="px-6 py-2 rounded-lg font-semibold text-sm transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+          style={{ background: 'linear-gradient(135deg, #04f5ff, #00d2ff)', color: '#1a0025' }}
         >
-          {loading ? 'Loading...' : 'Load Team'}
+          {loading ? 'Loading…' : 'Load Team'}
         </button>
       </form>
     </div>

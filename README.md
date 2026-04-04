@@ -1,36 +1,52 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# FPL Solver
+
+Fantasy Premier League Transfer Advisor — a Next.js web app that helps FPL managers make smarter transfer decisions based on form, fixture difficulty, and expected points modelling.
+
+## Features
+
+- **Pitch view** — visualise your squad in a GK → DEF → MID → FWD layout with real FPL player photos and position-coloured cards
+- **Points toggle** — switch between season total, current GW actual points, or projected points for any of the next 3 upcoming gameweeks
+- **Projected points** — estimates per player using blended form/PPG × fixture difficulty × minutes multiplier
+- **Drag & drop substitutions** — drag any player card onto another to swap; formation rules enforced (GK↔GK only for keepers, valid 3-4-3/4-3-3/etc. for outfield)
+- **Transfer suggestions** — single and multi-transfer plans (1, 2, 3, wildcard) ranked by expected points gain, recalculated per projected GW
+- **Apply transfers** — preview your squad after a suggested transfer with live budget and 3-per-club constraint validation
+- **Wildcard planner** — greedy optimiser for up to 8 improvements with no points hit
 
 ## Getting Started
 
-First, run the development server:
-
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000) and enter your **FPL Manager ID** — found in the URL of your FPL team page:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```
+fantasy.premierleague.com/entry/1234567/event/...
+                                 ^^^^^^^
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## How Transfer Suggestions Work
 
-## Learn More
+Each player is scored over the selected upcoming gameweek window:
 
-To learn more about Next.js, take a look at the following resources:
+```
+xPts = (form × 0.6 + PPG × 0.4) × difficulty_multiplier × minutes_multiplier
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+| Factor | Detail |
+|---|---|
+| `form` | FPL rolling 4-game average |
+| `PPG` | Season points-per-game (fallback when form = 0) |
+| `difficulty_multiplier` | `max(0.2, (6 − FDR) / 3)` |
+| `minutes_multiplier` | 1.0 ≥60 min/GW · 0.8 ≥45 · 0.5 ≥30 · 0.25 ≥15 · 0 otherwise |
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+The planner finds the best replacement for each squad player within your available budget, filtered to same position and available status.
 
-## Deploy on Vercel
+## Tech Stack
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- **Next.js 16** (App Router, API routes)
+- **React 19**
+- **TypeScript**
+- **Tailwind CSS v4**
+- FPL official API (`fantasy.premierleague.com/api`)
