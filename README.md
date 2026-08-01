@@ -51,19 +51,39 @@ Pages is static-only, so the app is built with `output: "export"` and all FPL ca
 run in the browser. The FPL API sends no `access-control-allow-origin` header, so
 those browser calls need a proxy — hence the three steps below.
 
-**1. Deploy the CORS proxy** (once). Open [workers.cloudflare.com](https://workers.cloudflare.com)
-→ Create Worker → paste [`worker/fpl-proxy.js`](worker/fpl-proxy.js) → Deploy. Copy the
-`https://….workers.dev` URL.
+All three are already done for this repo — kept here for redeploys and forks.
 
-**2. Set the repo variable.** Settings → Secrets and variables → Actions → Variables →
-New variable, name `FPL_PROXY`, value the worker URL **without** a trailing slash.
-The build fails with a clear error if this is missing.
+**1. Deploy the CORS proxy** (once), from `worker/`:
 
-**3. Set the Pages source.** Settings → Pages → Build and deployment → Source =
-**GitHub Actions** (not "Deploy from a branch").
+```bash
+npx wrangler@3 login     # opens a browser
+npx wrangler@3 deploy    # prints the https://….workers.dev URL
+```
+
+Use `wrangler@3`, not `@latest` — the latter requires Node 22. The Cloudflare
+dashboard's "Create application" page is the Git-connected build flow and will not
+deploy an inline script, so the CLI is the shorter route.
+
+**2. Set the repo variable** to that URL, **without** a trailing slash:
+
+```bash
+gh variable set FPL_PROXY --body https://fpl-proxy.<subdomain>.workers.dev
+```
+
+The build fails with a clear error if it is missing, rather than shipping a site
+whose every request 404s.
+
+**3. Set the Pages source** to GitHub Actions — Settings → Pages → Source, or:
+
+```bash
+gh api -X PUT repos/<owner>/fplsolver/pages -f build_type=workflow
+```
 
 Pushing to `main` then builds and publishes to
 `https://fedornaumenko.github.io/fplsolver/` via `.github/workflows/deploy.yml`.
+Note that GitHub's stock `nextjs.yml` Pages template does **not** work here: it
+builds without `FPL_PROXY`, and its `static_site_generator: next` generates a
+config that collides with the `basePath` in `next.config.ts`.
 
 `npm run dev` needs no proxy — `next.config.ts` rewrites `/fpl/*` to the FPL API
 server-side, where CORS does not apply.
