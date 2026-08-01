@@ -10,8 +10,11 @@ const nextConfig: NextConfig = {
   async rewrites() {
     return [
       {
+        // Trailing slash on the destination is load-bearing: Next strips the
+        // incoming one (trailingSlash: false) and FPL's backend 302s without it,
+        // which sends fetch to a relative /api/… on localhost and 404s.
         source: "/fpl/:path*",
-        destination: "https://fantasy.premierleague.com/api/:path*",
+        destination: "https://fantasy.premierleague.com/api/:path*/",
       },
     ];
   },
