@@ -122,7 +122,9 @@ export default function SeasonPlanner({
               <th scope="col" style={head}>Transfers</th>
               <th scope="col" style={{ ...head, textAlign: 'right' }}>FT</th>
               <th scope="col" style={{ ...head, textAlign: 'right' }}>Hit</th>
-              <th scope="col" style={{ ...head, textAlign: 'right' }}>Proj</th>
+              <th scope="col" style={{ ...head, textAlign: 'right' }} title="Projected points for that gameweek alone">
+                Proj/GW
+              </th>
               <th scope="col" style={{ ...head, textAlign: 'right' }}>Net</th>
             </tr>
           </thead>
@@ -137,8 +139,11 @@ export default function SeasonPlanner({
                       value={o.chip ?? ''}
                       onChange={e => upsert(o.gameweek, { chip: (e.target.value || null) as ChipName | null })}
                       aria-label={`Chip for gameweek ${o.gameweek}`}
+                      className="select-field"
                       style={{
-                        background: o.chip ? 'var(--color-chip)' : 'var(--fill-2)',
+                        // backgroundColor, not background: the shorthand would reset the
+                        // background-image that draws .select-field's chevron.
+                        backgroundColor: o.chip ? 'var(--color-chip)' : 'var(--fill-2)',
                         color: o.chip ? 'var(--color-ground)' : 'var(--ink)',
                         border: '1px solid var(--rule-strong)',
                         borderRadius: 'var(--radius-sm)',
@@ -146,10 +151,14 @@ export default function SeasonPlanner({
                         fontSize: 'var(--text-xs)',
                       }}
                     >
-                      <option value="">—</option>
+                      <option value="" style={{ background: 'var(--color-ground)', color: 'var(--ink)' }}>
+                        No chip
+                      </option>
                       {/* The chip already on this row stays selectable even though it is spent. */}
                       {[...new Set([...(o.chip ? [o.chip] : []), ...offered])].map(c => (
-                        <option key={c} value={c}>{CHIP_LABEL[c]}</option>
+                        <option key={c} value={c} style={{ background: 'var(--color-ground)', color: 'var(--ink)' }}>
+                          {CHIP_LABEL[c]}
+                        </option>
                       ))}
                     </select>
                   </td>

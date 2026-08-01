@@ -52,17 +52,28 @@ function describeFixtures(fixtures?: PlayerFixture[]): string {
     .join('. ');
 }
 
-/** Opponent chips. Second chip is dropped on narrow viewports rather than shrunk. */
-function FixtureChips({ fixtures }: { fixtures?: PlayerFixture[] }) {
+/**
+ * Opponent chips for exactly the gameweeks being projected — one at the default horizon,
+ * not two. Capped at three so a five-gameweek window does not overflow an 82px card.
+ */
+function FixtureChips({
+  fixtures, from = 0, count = 1,
+}: {
+  fixtures?: PlayerFixture[];
+  from?: number;
+  count?: number;
+}) {
   if (!fixtures || fixtures.length === 0) return null;
+  const shown = fixtures.slice(from, from + Math.min(count, 3));
+  if (shown.length === 0) return null;
   return (
     <div className="flex gap-0.5 justify-center mt-0.5" aria-hidden="true">
-      {fixtures.slice(0, 2).map((f, i) => {
+      {shown.map((f, i) => {
         const chip = DIFFICULTY_CHIP[f.difficulty] ?? { bg: 'var(--fill-2)', fg: 'var(--ink)' };
         return (
           <span
             key={i}
-            className={`font-bold px-1 rounded leading-tight ${i === 1 ? 'hidden sm:inline' : ''}`}
+            className={`font-bold px-1 rounded leading-tight ${i > 0 ? 'hidden sm:inline' : ''}`}
             style={{
               fontSize: 'var(--text-xs)',
               background: chip.bg,
@@ -283,11 +294,13 @@ function getValidSwaps(playerId: number, picks: PickInfo[], playerMap: Record<nu
 
 function PlayerCard({
   player, pts, isCaptain = false, isViceCaptain = false, fixtures, size = 'starter',
+  chipFrom = 0, chipCount = 1,
   isDragging = false, isTargeted = false, isSelected = false, isValidTarget = false, awaitingTarget = false,
   onDragStart, onDragOver, onDrop, onDragEnd, onDragLeave, onClick,
 }: {
   player: Player; pts: number; isCaptain?: boolean; isViceCaptain?: boolean;
   fixtures?: PlayerFixture[]; size?: 'starter' | 'bench';
+  chipFrom?: number; chipCount?: number;
   isDragging?: boolean; isTargeted?: boolean; isSelected?: boolean;
   isValidTarget?: boolean; awaitingTarget?: boolean;
   onDragStart: (e: React.DragEvent) => void; onDragOver: (e: React.DragEvent) => void;
@@ -295,6 +308,7 @@ function PlayerCard({
   onClick: () => void;
 }) {
   const isStarter = size === 'starter';
+  const [photoFailed, setPhotoFailed] = useState(false);
 
   // One signal per state — a border colour change. No glow, no scale: the old
   // card used three simultaneous signals for "valid target" and one for invalid.
@@ -333,22 +347,30 @@ function PlayerCard({
           border: `2px solid ${borderColor}`,
         }}
       >
-        {/* Photo, with a silhouette showing through if it fails to load. Initials used
-          * to sit here, which read as a broken image rather than a missing photo. */}
+        {/* Photo. The silhouette is only drawn when the photo fails — FPL head shots are
+          * RGBA cut-outs (about 39% transparent), so a permanent silhouette underneath
+          * showed through every one of them. */}
         <div className="relative" style={{ aspectRatio: '11 / 10', overflow: 'hidden' }}>
-          <div
-            className="absolute inset-0 flex items-end justify-center"
-            style={{ background: 'var(--shade-1)' }}
-          >
-            <PlayerSilhouette className="w-full h-full" />
-          </div>
+          {photoFailed && (
+            <div
+              className="absolute inset-0 flex items-end justify-center"
+              style={{ background: 'var(--shade-1)' }}
+            >
+              <PlayerSilhouette className="w-full h-full" />
+            </div>
+          )}
           <img
             src={`https://resources.premierleague.com/premierleague/photos/players/110x140/p${player.code}.png`}
             alt=""
             draggable={false}
             className="absolute inset-0 w-full h-full"
-            style={{ objectFit: 'cover', objectPosition: 'center 8%', zIndex: 'var(--z-media)' }}
-            onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
+            style={{
+              objectFit: 'cover',
+              objectPosition: 'center 8%',
+              zIndex: 'var(--z-media)',
+              display: photoFailed ? 'none' : undefined,
+            }}
+            onError={() => setPhotoFailed(true)}
           />
           <div
             className="absolute inset-x-0 bottom-0 h-6"
@@ -396,7 +418,7 @@ function PlayerCard({
           >
             {pts}
           </div>
-          <FixtureChips fixtures={fixtures} />
+          <FixtureChips fixtures={fixtures} from={chipFrom} count={chipCount} />
         </div>
       </div>
     </button>
@@ -516,7 +538,9 @@ export default function SquadDisplay({
   const headerLabel =
     pointsMode === 'total' ? 'Season total' :
     pointsMode === 'gw' ? `GW${currentGameweek} points` :
-    horizon === 1 ? `Projected GW${projGWEvent}` : `Projected GW${projGWEvent}+${horizon - 1}`;
+    horizon === 1
+      ? `Projected GW${projGWEvent}`
+      : `Projected GW${projGWEvent}–GW${projGWEvent + horizon - 1}`;
 
   const canNavLeft = projGWIndex > 0;
   // Furthest start that still leaves `horizon` fixtures to sum.
@@ -566,6 +590,8 @@ export default function SquadDisplay({
     player,
     pts: getPlayerDisplayPts(player),
     fixtures: playerFixtures[player.id],
+    chipFrom: projGWIndex,
+    chipCount: horizon,
     isDragging: draggingId === player.id,
     isTargeted: dragOverId === player.id,
     isSelected: pendingSwapId === player.id,

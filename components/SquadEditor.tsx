@@ -230,9 +230,10 @@ export default function SquadEditor({
               value={teamFilter}
               onChange={e => setTeamFilter(e.target.value === 'all' ? 'all' : Number(e.target.value))}
               aria-label="Filter by club"
-              className="rounded-lg px-2 py-2"
+              className="select-field rounded-lg px-2 py-2"
               style={{
-                background: 'var(--fill-2)',
+                // backgroundColor, not background — the shorthand resets the chevron image.
+                backgroundColor: 'var(--fill-2)',
                 border: '1px solid var(--rule-strong)',
                 color: 'var(--ink)',
                 fontSize: 'var(--text-sm)',

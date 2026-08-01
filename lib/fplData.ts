@@ -108,8 +108,12 @@ type RawFixture = {
   kickoff_time: string;
 };
 
-/** How many upcoming fixtures to keep per player: max horizon (5) + room to step the start. */
-const FIXTURE_DEPTH = 6;
+/**
+ * How many upcoming fixtures to keep per player. Needs to cover the longest horizon (5)
+ * plus room to step the starting gameweek, and it is also what bounds the season
+ * planner — six was too shallow to plan around.
+ */
+const FIXTURE_DEPTH = 10;
 
 /** Next few unplayed fixtures per player, which is what the projected-points toggle reads. */
 function upcomingFixturesBySquadPlayer(
@@ -315,7 +319,7 @@ export async function fetchPlayerDetail(playerId: number): Promise<PlayerDetailD
       bootstrap.teams.map((t: { id: number; short_name: string }) => [t.id, t])
     );
 
-    const fixtures: PlayerFixture[] = playerData.fixtures.slice(0, 5).map(
+    const fixtures: PlayerFixture[] = playerData.fixtures.slice(0, FIXTURE_DEPTH).map(
       (f: {
         event: number;
         event_name: string;

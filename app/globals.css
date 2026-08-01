@@ -120,6 +120,31 @@ body {
   color: var(--ink-faint);
 }
 
+/* A native <dialog> centres itself with margin:auto, which Tailwind's preflight reset
+ * (*,:after,:before,::backdrop{margin:0}) removes — leaving the modal pinned to the
+ * top-left corner. Put it back. */
+dialog:modal {
+  margin: auto;
+}
+
+/* Native selects render a grey system arrow and, on Windows, white option rows that
+ * make light text invisible. Replace the arrow and colour the options explicitly.
+ * The chevron colour is inlined because a data: URI cannot read a custom property —
+ * it is the one place --color-accent has to be repeated. */
+.select-field {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16' fill='none'%3E%3Cpath d='M4 6.5 L8 10.5 L12 6.5' stroke='%2304f5ff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.5rem center;
+  background-size: 14px 14px;
+  padding-right: 1.9rem;
+}
+
+.select-field option {
+  background: var(--color-ground);
+  color: var(--ink);
+}
+
 /* Every figure in this app sits in a column that must not shuffle as digits change. */
 .num {
   font-family: var(--font-display);

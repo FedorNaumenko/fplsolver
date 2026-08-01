@@ -62,7 +62,7 @@ export default function PlayerDetailModal({ player, teams, onClose, onSubstitute
       onClose={onClose}
       onClick={e => { if (e.target === ref.current) ref.current?.close(); }}
       aria-labelledby="player-detail-name"
-      className="w-full sm:max-w-md max-h-[92vh] p-0 rounded-t-xl sm:rounded-xl backdrop:bg-black/60"
+      className="m-auto w-full sm:max-w-md max-h-[92vh] p-0 rounded-t-xl sm:rounded-xl backdrop:bg-black/60"
       style={{ background: 'var(--color-ground)', color: 'var(--ink)', border: '1px solid var(--rule)' }}
     >
       <div className="max-h-[92vh] overflow-y-auto">

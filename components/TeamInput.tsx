@@ -10,9 +10,20 @@ interface Props {
 export default function TeamInput({ onLoad, loading }: Props) {
   const [value, setValue] = useState('');
 
-  const handleSubmit = (e: React.FormEvent) => {
+  /**
+   * Reads the field from the DOM as well as from state.
+   *
+   * After a reload the browser can refill the input from session history without firing
+   * an input event, so React state stayed empty while a number was plainly visible — and
+   * the submit button, disabled on empty state, refused to do anything until you retyped
+   * it. autoComplete="off" asks the browser not to do that; this makes the form work even
+   * when it does anyway, rather than trusting the request.
+   */
+  const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (value.trim()) onLoad(value.trim());
+    const field = e.currentTarget.elements.namedItem('managerId') as HTMLInputElement | null;
+    const id = (value.trim() || field?.value.trim() || '').replace(/[^0-9]/g, '');
+    if (id) onLoad(id);
   };
 
   return (
@@ -31,9 +42,16 @@ export default function TeamInput({ onLoad, loading }: Props) {
       </p>
       <form onSubmit={handleSubmit} className="flex gap-3">
         <input
-          type="number"
+          // text + numeric keypad rather than type=number: a number input draws grey
+          // spinner arrows, and autoComplete off stops the browser refilling the field on
+          // reload while React state is still empty (which left the button disabled).
+          type="text"
+          inputMode="numeric"
+          pattern="[0-9]*"
+          autoComplete="off"
+          name="managerId"
           value={value}
-          onChange={e => setValue(e.target.value)}
+          onChange={e => setValue(e.target.value.replace(/[^0-9]/g, ''))}
           placeholder="Manager ID (e.g. 1234567)"
           className="num flex-1 min-w-0 rounded-lg px-4 py-2"
           style={{
@@ -43,11 +61,10 @@ export default function TeamInput({ onLoad, loading }: Props) {
             transition: 'border-color var(--dur-short) var(--ease-out)',
           }}
           disabled={loading}
-          min="1"
         />
         <button
           type="submit"
-          disabled={loading || !value.trim()}
+          disabled={loading}
           className="px-5 py-2 rounded-lg font-semibold text-sm disabled:opacity-40 disabled:cursor-not-allowed"
           style={{
             background: 'var(--color-accent)',

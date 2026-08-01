@@ -209,9 +209,6 @@ export default function Home() {
             >
               FPL Solver
             </h1>
-            <p className="text-sm mt-0.5" style={{ color: 'var(--color-accent)' }}>
-              Fantasy Premier League transfer advisor
-            </p>
           </div>
         </div>
       </header>
