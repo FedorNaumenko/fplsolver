@@ -5,6 +5,7 @@ import TeamInput from '@/components/TeamInput';
 import SquadDisplay from '@/components/SquadDisplay';
 import TransferPlanner from '@/components/TransferPlanner';
 import SquadEditor from '@/components/SquadEditor';
+import SeasonPlanner from '@/components/SeasonPlanner';
 import type { Player, PickInfo, PlayerFixture } from '@/lib/types';
 import { fetchTeamData, fetchTransfers, fetchPlayerDetail, fetchPreseasonSquad, FplNotice } from '@/lib/fplData';
 import { canSwap, canAdd, ensureArmbands } from '@/lib/calculations/squadRules';
@@ -295,6 +296,21 @@ export default function Home() {
             onSwap={handleApplyTransfer}
             onRemove={handleRemovePlayer}
             onAdd={handleAddPlayer}
+          />
+        )}
+
+        {teamData && managerId && (
+          <SeasonPlanner
+            key={managerId}
+            managerId={managerId}
+            basePicks={localPicks}
+            allPlayers={preseason?.allPlayers ?? localSquad}
+            fixtures={teamData.fixtures}
+            chips={teamData.chips}
+            rules={teamData.transferRules}
+            gameweeks={teamData.upcomingGameweeks}
+            gameweeksPlayed={teamData.gameweeksPlayed}
+            bank={localBudget}
           />
         )}
 

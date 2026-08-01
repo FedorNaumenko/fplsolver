@@ -17,6 +17,7 @@ import { generateTransferSuggestions } from '@/lib/calculations/transferSuggesti
 import { planMultipleTransfers } from '@/lib/calculations/multiTransfer';
 import { buildOptimalSquad, PRESEASON_GAMEWEEKS } from '@/lib/calculations/squadBuilder';
 import { settingsFromBootstrap, type SquadSettings } from '@/lib/calculations/squadRules';
+import { transferRulesFromBootstrap, type ChipDef, type TransferRules } from '@/lib/planning/seasonPlan';
 
 export interface TeamData {
   squad: Player[];
@@ -35,6 +36,12 @@ export interface TeamData {
    * so it is a full 38. Carried here so every consumer uses the same value.
    */
   gameweeksPlayed: number;
+  /** Chip definitions straight from the API — windows and counts are never hardcoded. */
+  chips: ChipDef[];
+  /** Free-transfer cap and hit cost, from game_settings. */
+  transferRules: TransferRules;
+  /** Upcoming gameweek ids the planner can span. */
+  upcomingGameweeks: number[];
 }
 
 export interface TransfersData {
@@ -133,6 +140,14 @@ function upcomingFixturesBySquadPlayer(
   return byPlayer;
 }
 
+/** The next FIXTURE_DEPTH gameweek ids from `from` inclusive, for the season planner. */
+function upcomingGameweekIds(events: GameweekData[], from: number): number[] {
+  return events
+    .filter(e => e.id >= from && !e.finished)
+    .slice(0, FIXTURE_DEPTH)
+    .map(e => e.id);
+}
+
 /** Squad, picks, budget and upcoming fixtures for a manager. */
 export async function fetchTeamData(managerId: string | number): Promise<TeamData> {
   const id = assertManagerId(managerId);
@@ -183,6 +198,9 @@ export async function fetchTeamData(managerId: string | number): Promise<TeamDat
       playerFixtures,
       fixtures: allFixtures as Fixture[],
       gameweeksPlayed: currentGameweek,
+      chips: (bootstrap.chips ?? []) as ChipDef[],
+      transferRules: transferRulesFromBootstrap(bootstrap.game_settings),
+      upcomingGameweeks: upcomingGameweekIds(bootstrap.events as GameweekData[], currentGameweek),
     };
   } catch (error) {
     if (error instanceof FplNotice) throw error;
@@ -274,6 +292,9 @@ export async function fetchPreseasonSquad(gwOffsetRaw: number = 0): Promise<Pres
     managerName: `Suggested GW${nextGameweek} squad`,
     playerFixtures: upcomingFixturesBySquadPlayer(built.squad, fixtures, teamMap),
     gameweeksPlayed: PRESEASON_GAMEWEEKS,
+    chips: (bootstrap.chips ?? []) as ChipDef[],
+    transferRules: transferRulesFromBootstrap(bootstrap.game_settings),
+    upcomingGameweeks: upcomingGameweekIds(bootstrap.events as GameweekData[], nextGameweek),
     allPlayers: bootstrap.elements as Player[],
     fixtures: fixtures as Fixture[],
     settings,
