@@ -11,15 +11,9 @@
 
 import type { Player, Fixture, PickInfo } from '../types';
 import { calcExpectedPoints } from './xPts';
+import { DEFAULT_SETTINGS, type SquadSettings } from './squadRules';
 
-/** Official squad composition, keyed by element_type. */
-const QUOTA: Record<number, number> = { 1: 2, 2: 5, 3: 5, 4: 3 };
 const POSITIONS = [1, 2, 3, 4];
-const SQUAD_SIZE = 15;
-const STARTERS = 11;
-/** £100.0m, in the tenths the API reports costs in. */
-const BUDGET = 1000;
-const MAX_PER_CLUB = 3;
 /** Pre-season `minutes` holds last season's total, so average it over a full season. */
 export const PRESEASON_GAMEWEEKS = 38;
 /** Guard against a pathological swap cycle; real runs converge in well under this. */
@@ -45,7 +39,7 @@ interface Scored {
  * Best legal XI out of the 15: exactly 1 GK, then 3-5 DEF, 2-5 MID, 1-3 FWD.
  * Few enough shapes to just try them all.
  */
-function chooseStartingXI(picked: Scored[]): Set<number> {
+function chooseStartingXI(picked: Scored[], STARTERS: number): Set<number> {
   const byPos = (pos: number) =>
     picked.filter(s => s.player.element_type === pos).sort((a, b) => b.xPts - a.xPts);
   const [gk, def, mid, fwd] = [byPos(1), byPos(2), byPos(3), byPos(4)];
@@ -73,8 +67,19 @@ export function buildOptimalSquad(
   fixtures: Fixture[],
   numGW: number = 3,
   gwOffset: number = 0,
-  gameweeksPlayed: number = PRESEASON_GAMEWEEKS
+  gameweeksPlayed: number = PRESEASON_GAMEWEEKS,
+  settings: SquadSettings = DEFAULT_SETTINGS
 ): BuiltSquad {
+  // Destructured to the names the body already used, so the limits became
+  // API-driven without touching the algorithm.
+  const {
+    quota: QUOTA,
+    totalSpend: BUDGET,
+    teamLimit: MAX_PER_CLUB,
+    squadSize: SQUAD_SIZE,
+    startingSize: STARTERS,
+  } = settings;
+
   const scored: Scored[] = allPlayers
     .filter(p => p.status === 'a' && QUOTA[p.element_type] !== undefined)
     .map(p => ({
@@ -187,7 +192,7 @@ export function buildOptimalSquad(
     spend += best.in.player.now_cost - best.out.player.now_cost;
   }
 
-  const xi = chooseStartingXI(picked);
+  const xi = chooseStartingXI(picked, STARTERS);
   const starters = picked
     .filter(s => xi.has(s.player.id))
     .sort((a, b) => a.player.element_type - b.player.element_type || b.xPts - a.xPts);

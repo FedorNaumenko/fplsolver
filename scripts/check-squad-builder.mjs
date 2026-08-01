@@ -36,7 +36,7 @@ try {
   // which Node's ESM loader rejects but its CJS resolver handles.
   execFileSync(
     process.platform === 'win32' ? 'npx.cmd' : 'npx',
-    ['tsc', 'lib/calculations/squadBuilder.ts', '--outDir', outDir,
+    ['tsc', 'lib/calculations/squadBuilder.ts', 'lib/calculations/squadRules.ts', '--outDir', outDir,
      '--module', 'commonjs', '--moduleResolution', 'node', '--target', 'es2022', '--skipLibCheck'],
     { stdio: 'inherit' }
   );
@@ -44,7 +44,10 @@ try {
 
   const emitted = findFile(outDir, 'squadBuilder.js');
   assert.ok(emitted, 'tsc did not emit squadBuilder.js');
-  const { buildOptimalSquad } = createRequire(import.meta.url)(emitted);
+  const require_ = createRequire(import.meta.url);
+  const { buildOptimalSquad } = require_(emitted);
+  const { calcExpectedPoints, xgPointsPer90 } = require_(findFile(outDir, 'xPts.js'));
+  const { settingsFromBootstrap } = require_(findFile(outDir, 'squadRules.js'));
 
   const get = async path => {
     const r = await fetch(`${PROXY}${path}`);
@@ -56,7 +59,29 @@ try {
     get('/fixtures/'),
   ]);
 
-  const built = buildOptimalSquad(bootstrap.elements, fixtures, 3, 0);
+  // ── The limits must come from the API, not from constants in the builder ──
+  const settings = settingsFromBootstrap(bootstrap.game_settings);
+  assert.equal(settings.totalSpend, bootstrap.game_settings.squad_total_spend,
+    'budget must be read from game_settings');
+  assert.equal(settings.squadSize, bootstrap.game_settings.squad_squadsize,
+    'squad size must be read from game_settings');
+  assert.equal(settings.teamLimit, bootstrap.game_settings.squad_team_limit,
+    'club limit must be read from game_settings');
+
+  // ── The xG blend must never produce NaN, and must not zero a player who has
+  //    points-per-game but no xG signal (new signings with 0 minutes) ──
+  let checkedNoXg = 0;
+  for (const p of bootstrap.elements) {
+    const xp = calcExpectedPoints(p, fixtures, 38, 3, 0);
+    assert.ok(Number.isFinite(xp), `projection is not finite for ${p.web_name}: ${xp}`);
+    assert.ok(xp >= 0, `projection is negative for ${p.web_name}: ${xp}`);
+    assert.ok(Number.isFinite(xgPointsPer90(p)), `xgPointsPer90 not finite for ${p.web_name}`);
+    if (xgPointsPer90(p) === 0 && Number(p.points_per_game) > 0 && p.minutes > 0) checkedNoXg++;
+  }
+  const withXg = bootstrap.elements.filter(p => xgPointsPer90(p) > 0).length;
+  assert.ok(withXg > 200, `expected xG signal for most players, got ${withXg}`);
+
+  const built = buildOptimalSquad(bootstrap.elements, fixtures, 3, 0, 38, settings);
   const { squad, picks, teamValue, bank } = built;
   const clubs = new Map();
   for (const p of squad) clubs.set(p.team, (clubs.get(p.team) ?? 0) + 1);
@@ -95,7 +120,10 @@ try {
   assert.ok(picks.filter(p => p.position > 11).every(p => p.multiplier === 0), 'bench multiplier must be 0');
 
   const name = id => bootstrap.elements.find(p => p.id === id).web_name;
-  console.log(`\nOK — legal squad, £${(teamValue / 10).toFixed(1)}m spent, £${(bank / 10).toFixed(1)}m left`);
+  console.log(`\nxG signal for ${withXg}/${bootstrap.elements.length} players; ` +
+    `${checkedNoXg} with minutes but no xG fall back to PPG alone`);
+  console.log(`limits from API: £${settings.totalSpend / 10}m · ${settings.squadSize} players · max ${settings.teamLimit}/club`);
+  console.log(`OK — legal squad, £${(teamValue / 10).toFixed(1)}m spent, £${(bank / 10).toFixed(1)}m left`);
   console.log(`   XI projected ${built.totalXPts} pts (C: ${name(cap.playerId)})`);
   console.log(`   ${starters.length} starters, ${clubs.size} clubs, formation ` +
     `${startersByPos[2]}-${startersByPos[3]}-${startersByPos[4]}`);

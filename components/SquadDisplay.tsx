@@ -105,6 +105,76 @@ function Goal() {
   );
 }
 
+function Chevron({ dir }: { dir: 'prev' | 'next' }) {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path
+        d={dir === 'prev' ? 'M10 3 L5 8 L10 13' : 'M6 3 L11 8 L6 13'}
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+/**
+ * One segmented control rather than three loose boxes, with 40px hit targets —
+ * the previous version was a bare arrow glyph in a ~28px padded box.
+ */
+function GameweekStepper({
+  gameweek, canPrev, canNext, onPrev, onNext,
+}: {
+  gameweek: number;
+  canPrev: boolean;
+  canNext: boolean;
+  onPrev: () => void;
+  onNext: () => void;
+}) {
+  const step = 'w-10 h-10 flex items-center justify-center disabled:opacity-30 disabled:cursor-not-allowed';
+  return (
+    <span
+      className="inline-flex items-center ml-1 rounded-lg overflow-hidden"
+      style={{ border: '1px solid var(--rule-strong)', background: 'var(--fill-1)' }}
+    >
+      <button
+        type="button"
+        onClick={onPrev}
+        disabled={!canPrev}
+        aria-label="Previous gameweek"
+        className={step}
+        style={{ color: 'var(--color-accent)', transition: 'background-color var(--dur-short) var(--ease-out)' }}
+      >
+        <Chevron dir="prev" />
+      </button>
+      <span
+        className="num font-semibold px-1 text-center"
+        style={{
+          color: 'var(--color-accent)',
+          fontSize: 'var(--text-xs)',
+          minWidth: '3.25rem',
+          borderInline: '1px solid var(--rule-strong)',
+          lineHeight: '2.5rem',
+        }}
+        aria-live="polite"
+      >
+        GW{gameweek}
+      </span>
+      <button
+        type="button"
+        onClick={onNext}
+        disabled={!canNext}
+        aria-label="Next gameweek"
+        className={step}
+        style={{ color: 'var(--color-accent)', transition: 'background-color var(--dur-short) var(--ease-out)' }}
+      >
+        <Chevron dir="next" />
+      </button>
+    </span>
+  );
+}
+
 function isValidFormation(picks: PickInfo[], playerMap: Record<number, Player>): boolean {
   const starters = picks.filter(p => p.position <= 11);
   const counts: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0 };
@@ -474,29 +544,13 @@ export default function SquadDisplay({
             ))}
 
             {pointsMode === 'projected' && (
-              <span className="inline-flex items-center gap-1 ml-1">
-                <button
-                  onClick={() => canNavLeft && onProjGWIndexChange(projGWIndex - 1)}
-                  disabled={!canNavLeft}
-                  aria-label="Previous gameweek"
-                  className="px-2 py-1 rounded disabled:opacity-40"
-                  style={{ color: 'var(--color-accent)', background: 'var(--fill-1)', fontSize: 'var(--text-xs)' }}
-                >
-                  ←
-                </button>
-                <span className="num font-semibold" style={{ color: 'var(--color-accent)', fontSize: 'var(--text-xs)' }}>
-                  GW{projGWEvent}
-                </span>
-                <button
-                  onClick={() => canNavRight && onProjGWIndexChange(projGWIndex + 1)}
-                  disabled={!canNavRight}
-                  aria-label="Next gameweek"
-                  className="px-2 py-1 rounded disabled:opacity-40"
-                  style={{ color: 'var(--color-accent)', background: 'var(--fill-1)', fontSize: 'var(--text-xs)' }}
-                >
-                  →
-                </button>
-              </span>
+              <GameweekStepper
+                gameweek={projGWEvent}
+                canPrev={canNavLeft}
+                canNext={canNavRight}
+                onPrev={() => onProjGWIndexChange(projGWIndex - 1)}
+                onNext={() => onProjGWIndexChange(projGWIndex + 1)}
+              />
             )}
           </div>
         </div>

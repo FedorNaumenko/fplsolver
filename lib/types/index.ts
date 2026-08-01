@@ -51,6 +51,20 @@ export interface Player {
   yellow_cards: number;
   red_cards: number;
   own_goals: number;
+
+  // Expected goals — already present in bootstrap-static, so no scraping needed.
+  // The totals come back as strings, the per-90 rates as numbers. Between seasons
+  // these still hold last season's figures, which is what makes them usable
+  // pre-season when `form` is 0 for everyone. Players with no minutes report 0,
+  // so consumers must treat 0 as "no signal" rather than "genuinely zero".
+  expected_goals: string;
+  expected_assists: string;
+  expected_goal_involvements: string;
+  expected_goals_conceded: string;
+  expected_goals_per_90: number;
+  expected_assists_per_90: number;
+  expected_goal_involvements_per_90: number;
+  expected_goals_conceded_per_90: number;
 }
 
 export interface Team {

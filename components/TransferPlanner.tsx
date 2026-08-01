@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import type { Player, TransferSuggestion, MultiTransferPlan, PlannedTransfer } from '@/lib/types';
 import { formatPrice, getPositionName } from '@/lib/utils';
+import { canSwap } from '@/lib/calculations/squadRules';
 
 interface Props {
   suggestions: TransferSuggestion[];
@@ -46,19 +47,9 @@ function SingleTransferCard({
   onApply: () => void;
   isApplied: boolean;
 }) {
-  const playerStillOut = localSquad.some(p => p.id === s.playerOut.id);
-  const playerAlreadyIn = localSquad.some(p => p.id === s.playerIn.id);
-  const maxSpend = s.playerOut.now_cost + localBudget;
-  const affordable = s.playerIn.now_cost <= maxSpend;
-  const sameTeamCount = localSquad.filter(p => p.team === s.playerIn.team && p.id !== s.playerOut.id).length;
-  const teamOk = sameTeamCount < 3;
-
-  const canApply = playerStillOut && !playerAlreadyIn && affordable && teamOk;
-  let applyReason = '';
-  if (!playerStillOut) applyReason = 'Already transferred';
-  else if (playerAlreadyIn) applyReason = 'Already in squad';
-  else if (!affordable) applyReason = 'Over budget';
-  else if (!teamOk) applyReason = 'Max 3 per club';
+  const verdict = canSwap(localSquad, s.playerOut, s.playerIn, localBudget);
+  const canApply = verdict.ok;
+  const applyReason = verdict.reason ?? '';
 
   return (
     <div

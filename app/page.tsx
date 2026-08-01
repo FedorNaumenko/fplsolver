@@ -1,23 +1,15 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import CrestIcon from '@/components/CrestIcon';
 import TeamInput from '@/components/TeamInput';
 import SquadDisplay from '@/components/SquadDisplay';
 import TransferPlanner from '@/components/TransferPlanner';
+import SquadEditor from '@/components/SquadEditor';
 import type { Player, PickInfo, PlayerFixture } from '@/lib/types';
 import { fetchTeamData, fetchTransfers, fetchPlayerDetail, fetchPreseasonSquad, FplNotice } from '@/lib/fplData';
-import type { TeamData, TransfersData } from '@/lib/fplData';
-
-function LionCrownIcon({ className = '' }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 32 36" fill="none" xmlns="http://www.w3.org/2000/svg">
-      {/* 3-spike crown */}
-      <path d="M6 23 L6 17.5 L11.5 21.5 L16 11 L20.5 21.5 L26 17.5 L26 23 Z" fill="var(--color-crest)"/>
-      {/* Lion mane / head — overlaps crown base for a seamless silhouette */}
-      <circle cx="16" cy="29" r="8" fill="var(--color-crest)"/>
-    </svg>
-  );
-}
+import { canSwap } from '@/lib/calculations/squadRules';
+import type { TeamData, TransfersData, PreseasonData } from '@/lib/fplData';
 
 export default function Home() {
   const [teamData, setTeamData] = useState<TeamData | null>(null);
@@ -29,6 +21,8 @@ export default function Home() {
   const [notice, setNotice] = useState<string | null>(null);
   const [managerId, setManagerId] = useState<string>('');
   const [projGWIndex, setProjGWIndex] = useState(0);
+  // Only set on the pre-season path — carries the player pool the editor needs.
+  const [preseason, setPreseason] = useState<PreseasonData | null>(null);
 
   const [localSquad, setLocalSquad] = useState<Player[]>([]);
   const [localPicks, setLocalPicks] = useState<PickInfo[]>([]);
@@ -50,6 +44,7 @@ export default function Home() {
     setNotice(null);
     setTeamData(null);
     setTransfersData(null);
+    setPreseason(null);
     setManagerId(id);
     setProjGWIndex(0);
 
@@ -66,7 +61,9 @@ export default function Home() {
         // Nothing to load yet, so show the squad the model would pick instead. Both
         // FPL fetches it needs are already cached from the attempt that just failed.
         try {
-          setTeamData(await fetchPreseasonSquad(0));
+          const built = await fetchPreseasonSquad(0);
+          setPreseason(built);
+          setTeamData(built);
         } catch {
           // notice on its own is still a useful answer
         }
@@ -95,10 +92,8 @@ export default function Home() {
 
   const handleApplyTransfer = async (playerOut: Player, playerIn: Player) => {
     if (!teamData) return;
+    if (!canSwap(localSquad, playerOut, playerIn, localBudget).ok) return;
     const costDiff = playerIn.now_cost - playerOut.now_cost;
-    if (playerIn.now_cost > playerOut.now_cost + localBudget) return;
-    const sameTeamCount = localSquad.filter(p => p.team === playerIn.team && p.id !== playerOut.id).length;
-    if (sameTeamCount >= 3) return;
     setLocalSquad(prev => prev.map(p => (p.id === playerOut.id ? playerIn : p)));
     setLocalPicks(prev => prev.map(p => (p.playerId === playerOut.id ? { ...p, playerId: playerIn.id } : p)));
     setLocalBudget(prev => prev - costDiff);
@@ -135,7 +130,7 @@ export default function Home() {
       {/* Masthead — the wordmark sits on a rule, not in a centred bar. */}
       <header className="px-4 py-4" style={{ background: 'var(--shade-1)', borderBottom: '1px solid var(--rule)' }}>
         <div className="max-w-3xl mx-auto flex items-center gap-3">
-          <LionCrownIcon className="w-10 h-10 flex-shrink-0" />
+          <CrestIcon className="w-11 h-11 flex-shrink-0" />
           <div>
             <h1
               className="font-bold tracking-tight"
@@ -211,6 +206,18 @@ export default function Home() {
               </div>
             )}
           </div>
+        )}
+
+        {preseason && teamData && (
+          <SquadEditor
+            squad={localSquad}
+            allPlayers={preseason.allPlayers}
+            teams={preseason.teams}
+            fixtures={preseason.fixtures}
+            bank={localBudget}
+            settings={preseason.settings}
+            onSwap={handleApplyTransfer}
+          />
         )}
 
         {transfersData && (

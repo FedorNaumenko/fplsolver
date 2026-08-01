@@ -15,7 +15,8 @@ import type {
 } from '@/lib/types';
 import { generateTransferSuggestions } from '@/lib/calculations/transferSuggestions';
 import { planMultipleTransfers } from '@/lib/calculations/multiTransfer';
-import { buildOptimalSquad } from '@/lib/calculations/squadBuilder';
+import { buildOptimalSquad, PRESEASON_GAMEWEEKS } from '@/lib/calculations/squadBuilder';
+import { settingsFromBootstrap, type SquadSettings } from '@/lib/calculations/squadRules';
 
 export interface TeamData {
   squad: Player[];
@@ -211,11 +212,21 @@ export async function fetchTransfers(
 }
 
 /**
+ * TeamData plus what the squad editor needs to offer replacements. Kept separate from
+ * TeamData so the in-season path doesn't carry a 564-player pool it never reads.
+ */
+export interface PreseasonData extends TeamData {
+  allPlayers: Player[];
+  fixtures: Fixture[];
+  settings: SquadSettings;
+}
+
+/**
  * Pre-season stand-in for a real squad: the best legal £100m XV the projection model
  * can find for the upcoming window. Shaped as TeamData so SquadDisplay, the drag-drop
  * subs and the projected-points toggle all work on it unchanged.
  */
-export async function fetchPreseasonSquad(gwOffsetRaw: number = 0): Promise<TeamData> {
+export async function fetchPreseasonSquad(gwOffsetRaw: number = 0): Promise<PreseasonData> {
   const gwOffset = Math.max(0, Math.min(2, Number(gwOffsetRaw) || 0));
   const [bootstrap, fixtures] = await Promise.all([
     FPLApi.getBootstrapStatic(),
@@ -226,7 +237,16 @@ export async function fetchPreseasonSquad(gwOffsetRaw: number = 0): Promise<Team
   const teamMap: Record<number, string> = Object.fromEntries(
     teams.map(t => [t.id, t.short_name])
   );
-  const built = buildOptimalSquad(bootstrap.elements as Player[], fixtures as Fixture[], 3, gwOffset);
+  // Squad limits come from the API rather than being hardcoded in the builder.
+  const settings = settingsFromBootstrap(bootstrap.game_settings);
+  const built = buildOptimalSquad(
+    bootstrap.elements as Player[],
+    fixtures as Fixture[],
+    3,
+    gwOffset,
+    PRESEASON_GAMEWEEKS,
+    settings
+  );
   const nextGameweek: number =
     (bootstrap.events as GameweekData[]).find(e => e.is_next)?.id ?? 1;
 
@@ -239,6 +259,9 @@ export async function fetchPreseasonSquad(gwOffsetRaw: number = 0): Promise<Team
     teams,
     managerName: `Suggested GW${nextGameweek} squad`,
     playerFixtures: upcomingFixturesBySquadPlayer(built.squad, fixtures, teamMap),
+    allPlayers: bootstrap.elements as Player[],
+    fixtures: fixtures as Fixture[],
+    settings,
   };
 }
 
