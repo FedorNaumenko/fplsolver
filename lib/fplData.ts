@@ -9,6 +9,7 @@ import type {
   PlayerFixture,
   PlayerHistoryEntry,
   Fixture,
+  GameweekData,
   TransferSuggestion,
   MultiTransferPlan,
 } from '@/lib/types';
@@ -44,6 +45,42 @@ function assertManagerId(managerId: string | number): number {
   return id;
 }
 
+/**
+ * A message already fit to show the user. The catch-alls below deliberately mask
+ * internal failures behind "check your Manager ID", which is the wrong advice for
+ * conditions no manager ID can fix — so these pass through untouched.
+ */
+export class FplNotice extends Error {}
+
+/**
+ * FPL clears `current_event` between seasons, and per-gameweek picks only exist
+ * once that gameweek's deadline has passed. Pre-season there is therefore no squad
+ * to fetch for anyone: `entry/<id>/event/1/picks/` 404s and `my-team/<id>/` needs
+ * a logged-in session cookie. Say so rather than blaming the manager ID.
+ */
+function requireGameweek(
+  bootstrap: { events: GameweekData[] },
+  managerInfo: { current_event: number | null }
+): number {
+  if (managerInfo.current_event) return managerInfo.current_event;
+
+  const next = bootstrap.events?.find(e => e.is_next);
+  if (!next) {
+    throw new FplNotice(
+      'The season is between gameweeks and the next one is not published yet. Try again later.'
+    );
+  }
+
+  const deadline = new Date(next.deadline_time);
+  const when = isNaN(deadline.valueOf())
+    ? ''
+    : ` (${deadline.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })})`;
+  throw new FplNotice(
+    `The season hasn't started yet, so no squads exist to load. ` +
+      `Teams become available once the ${next.name} deadline passes${when}.`
+  );
+}
+
 /** Squad, picks, budget and upcoming fixtures for a manager. */
 export async function fetchTeamData(managerId: string | number): Promise<TeamData> {
   const id = assertManagerId(managerId);
@@ -55,8 +92,7 @@ export async function fetchTeamData(managerId: string | number): Promise<TeamDat
       FPLApi.getFixtures(),
     ]);
 
-    const currentGameweek: number = managerInfo.current_event;
-    if (!currentGameweek) throw new Error('No active gameweek found');
+    const currentGameweek = requireGameweek(bootstrap, managerInfo);
 
     const picks = await FPLApi.getManagerPicks(id, currentGameweek);
 
@@ -117,6 +153,7 @@ export async function fetchTeamData(managerId: string | number): Promise<TeamDat
       playerFixtures,
     };
   } catch (error) {
+    if (error instanceof FplNotice) throw error;
     console.error('Team fetch error:', error);
     throw new Error('Failed to fetch team. Check your Manager ID.');
   }
@@ -136,8 +173,7 @@ export async function fetchTransfers(
       FPLApi.getManagerTeam(id),
       FPLApi.getFixtures(),
     ]);
-    const currentGameweek: number = managerInfo.current_event;
-    if (!currentGameweek) throw new Error('No active gameweek found');
+    const currentGameweek = requireGameweek(bootstrap, managerInfo);
     const picks = await FPLApi.getManagerPicks(id, currentGameweek);
     const allPlayers: Player[] = bootstrap.elements;
     const typedFixtures: Fixture[] = fixtures;
@@ -151,6 +187,7 @@ export async function fetchTransfers(
     const wildcard = planMultipleTransfers(squad, allPlayers, typedFixtures, bank, currentGameweek, 99, 8, 3, gwOffset);
     return { suggestions, plan2, plan3, wildcard };
   } catch (error) {
+    if (error instanceof FplNotice) throw error;
     console.error('Transfers fetch error:', error);
     throw new Error('Failed to generate transfer suggestions.');
   }

@@ -5,7 +5,7 @@ import TeamInput from '@/components/TeamInput';
 import SquadDisplay from '@/components/SquadDisplay';
 import TransferPlanner from '@/components/TransferPlanner';
 import type { Player, PickInfo, PlayerFixture } from '@/lib/types';
-import { fetchTeamData, fetchTransfers, fetchPlayerDetail } from '@/lib/fplData';
+import { fetchTeamData, fetchTransfers, fetchPlayerDetail, FplNotice } from '@/lib/fplData';
 import type { TeamData, TransfersData } from '@/lib/fplData';
 
 function LionCrownIcon({ className = '' }: { className?: string }) {
@@ -25,6 +25,8 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [transfersLoading, setTransfersLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Kept apart from `error` so "the season hasn't started" doesn't render as a failure.
+  const [notice, setNotice] = useState<string | null>(null);
   const [managerId, setManagerId] = useState<string>('');
   const [projGWIndex, setProjGWIndex] = useState(0);
 
@@ -45,6 +47,7 @@ export default function Home() {
   const handleLoad = async (id: string) => {
     setLoading(true);
     setError(null);
+    setNotice(null);
     setTeamData(null);
     setTransfersData(null);
     setManagerId(id);
@@ -58,7 +61,8 @@ export default function Home() {
       setTeamData(team);
       setTransfersData(transfers);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Something went wrong');
+      if (err instanceof FplNotice) setNotice(err.message);
+      else setError(err instanceof Error ? err.message : 'Something went wrong');
     } finally {
       setLoading(false);
     }
@@ -129,6 +133,12 @@ export default function Home() {
         {error && (
           <div className="border px-4 py-3 rounded-lg text-sm" style={{ background: 'rgba(220,38,38,0.15)', borderColor: 'rgba(220,38,38,0.4)', color: '#fca5a5' }}>
             {error}
+          </div>
+        )}
+
+        {notice && (
+          <div className="border px-4 py-3 rounded-lg text-sm" style={{ background: 'rgba(4,245,255,0.1)', borderColor: 'rgba(4,245,255,0.35)', color: '#a5f3fc' }}>
+            {notice}
           </div>
         )}
 
