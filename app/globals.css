@@ -1,12 +1,153 @@
 @import "tailwindcss";
 
+/* Hallmark · macrostructure: Workbench · genre: modern-minimal · tone: technical
+ * theme: custom (vibe: "matchday data, late-night desk" · ground oklch(16.3% 0.081 314.6)
+ *        · accent oklch(88.2% 0.150 200.1) cool · Geist Mono display + Geist Sans body)
+ * axes: dark paper / mono display / cool accent
+ * pre-emit critique: P4 H4 E5 S5 R5 V4
+ */
+
+/* ── Tokens ─────────────────────────────────────────────────────────────────
+ * Every colour and font in this app resolves through a name declared here.
+ * The OKLCH values are exact conversions of the palette that shipped before,
+ * so tokenising did not restyle the app — it gave it one source of truth.
+ */
+:root {
+  /* Ground — tinted toward the anchor hue, never #000 */
+  --color-ground: oklch(16.3% 0.081 314.6);
+  --color-ground-deep: oklch(20.4% 0.091 273.1);
+  --color-plum: oklch(24% 0.113 324.4);
+  --color-indigo: oklch(26.1% 0.163 275.9);
+  --color-well: oklch(12% 0.06 314.6); /* bench + tab trough */
+
+  /* Ink — tinted off-white, never #fff. These alphas clear 4.5:1 on every
+   * ground in this app; lowering them reintroduces the contrast failures. */
+  --ink: oklch(96% 0.012 310);
+  --ink-muted: oklch(96% 0.012 310 / 0.74);
+  --ink-faint: oklch(96% 0.012 310 / 0.56);
+
+  /* Accents */
+  --color-accent: oklch(88.2% 0.15 200.1);
+  --color-money: oklch(87.6% 0.229 152.4);
+  --color-danger: oklch(71.2% 0.181 22.8);
+  --color-warn: oklch(85.6% 0.166 88.4);
+  --color-danger-ink: oklch(80.8% 0.103 19.6);
+  --color-chip: oklch(72.2% 0.177 305.5);
+  --color-crest: oklch(87.4% 0.171 91.6); /* lion crown */
+  --color-focus: oklch(88.2% 0.15 200.1);
+
+  /* Pitch */
+  --color-pitch-a: oklch(46.9% 0.113 143.5);
+  --color-pitch-b: oklch(50.3% 0.121 143.5);
+
+  /* Position cards — the four squad roles */
+  --card-gk: linear-gradient(170deg, oklch(66.6% 0.157 58.3), oklch(47.3% 0.125 46.2));
+  --card-def: linear-gradient(170deg, oklch(54.6% 0.215 262.9), oklch(37.9% 0.138 265.5));
+  --card-mid: linear-gradient(170deg, oklch(59.6% 0.127 163.2), oklch(37.8% 0.073 168.9));
+  --card-fwd: linear-gradient(170deg, oklch(57.7% 0.215 27.3), oklch(39.6% 0.133 25.7));
+
+  /* Hairlines and fills, expressed on the ink so they tint with the theme */
+  --rule: oklch(96% 0.012 310 / 0.14);
+  --rule-strong: oklch(96% 0.012 310 / 0.26);
+  --fill-1: oklch(96% 0.012 310 / 0.05);
+  --fill-2: oklch(96% 0.012 310 / 0.09);
+  --shade-1: oklch(0% 0 0 / 0.35);
+  --shade-2: oklch(0% 0 0 / 0.55);
+  --shade-3: oklch(0% 0 0 / 0.82);
+
+  /* Type scale — 11px is the hard floor for any rendered label */
+  --text-xs: 0.6875rem;
+  --text-sm: 0.8125rem;
+  --text-base: 0.9375rem;
+  --text-lg: 1.125rem;
+  --text-xl: 1.5rem;
+  --text-display: 2.25rem;
+
+  /* 4pt space scale */
+  --space-2xs: 0.25rem;
+  --space-xs: 0.5rem;
+  --space-sm: 0.75rem;
+  --space-md: 1rem;
+  --space-lg: 1.5rem;
+  --space-xl: 2.5rem;
+
+  --radius-sm: 0.25rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+
+  /* Motion — named easings only; the browser default `ease` is never used */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --dur-short: 120ms;
+  --dur-mid: 220ms;
+
+  /* Six-level z-scale, replacing the ad-hoc 1 / 10 / 20 / 30 / 50 ladder */
+  --z-base: 1;
+  --z-media: 2;
+  --z-scrim: 3;
+  --z-badge: 4;
+  --z-sticky: 5;
+  --z-overlay: 6;
+}
+
 @theme inline {
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
+html,
 body {
-  background: #1a0025;
-  color: #ffffff;
-  font-family: Arial, Helvetica, sans-serif;
+  /* clip, never hidden — hidden would break position:sticky inside the page */
+  overflow-x: clip;
+}
+
+body {
+  /* Declared here, not on :root, deliberately. next/font defines
+   * --font-geist-sans on <body> via a generated class, so a `var()` referencing
+   * it from :root resolves against html — where it does not exist — making the
+   * whole declaration invalid and silently falling back to ui-sans-serif.
+   * Geist Mono was already being downloaded and never rendered; it now carries
+   * every figure and micro-label, which also aligns all numerals by default. */
+  --font-body: var(--font-geist-sans), ui-sans-serif, sans-serif;
+  --font-display: var(--font-geist-mono), ui-monospace, monospace;
+
+  background: var(--color-ground);
+  color: var(--ink);
+  font-family: var(--font-body);
+}
+
+::placeholder {
+  color: var(--ink-faint);
+}
+
+/* Every figure in this app sits in a column that must not shuffle as digits change. */
+.num {
+  font-family: var(--font-display);
+  font-variant-numeric: tabular-nums;
+}
+
+/* One visible focus ring for the whole app, applied instantly — never transitioned.
+ * Components may restyle it; they may not remove it. */
+:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+/* Clickable text is a one-line object — a control must never wrap to two lines. */
+button,
+[role="button"] {
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-property: opacity !important;
+    transition-duration: 150ms !important;
+    scroll-behavior: auto !important;
+  }
 }

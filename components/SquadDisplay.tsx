@@ -20,53 +20,85 @@ interface Props {
 }
 
 const POSITION_CARD_GRADIENT: Record<number, string> = {
-  1: 'linear-gradient(170deg, #d97706 0%, #92400e 100%)',
-  2: 'linear-gradient(170deg, #2563eb 0%, #1e3a8a 100%)',
-  3: 'linear-gradient(170deg, #059669 0%, #064e3b 100%)',
-  4: 'linear-gradient(170deg, #dc2626 0%, #7f1d1d 100%)',
+  1: 'var(--card-gk)',
+  2: 'var(--card-def)',
+  3: 'var(--card-mid)',
+  4: 'var(--card-fwd)',
 };
 
-const DIFFICULTY_CHIP: Record<number, string> = {
-  1: 'bg-emerald-600 text-white',
-  2: 'bg-green-400 text-white',
-  3: 'bg-yellow-300 text-gray-900',
-  4: 'bg-orange-500 text-white',
-  5: 'bg-red-600 text-white',
+/** Fixture difficulty 1 (easiest) → 5 (hardest). Text colour is paired for contrast. */
+const DIFFICULTY_CHIP: Record<number, { bg: string; fg: string }> = {
+  1: { bg: 'oklch(62% 0.15 150)', fg: 'oklch(18% 0.04 150)' },
+  2: { bg: 'oklch(75% 0.16 145)', fg: 'oklch(20% 0.05 145)' },
+  3: { bg: 'oklch(85% 0.15 95)', fg: 'oklch(25% 0.06 95)' },
+  4: { bg: 'oklch(70% 0.17 45)', fg: 'oklch(18% 0.05 45)' },
+  5: { bg: 'oklch(58% 0.21 27)', fg: 'oklch(97% 0.01 27)' },
 };
 
+function describeFixtures(fixtures?: PlayerFixture[]): string {
+  if (!fixtures?.length) return 'No upcoming fixtures';
+  return fixtures
+    .slice(0, 2)
+    .map(f => `GW${f.event} ${f.is_home ? 'home to' : 'away at'} ${f.opponent_short_name}, difficulty ${f.difficulty} of 5`)
+    .join('. ');
+}
+
+/** Opponent chips. Second chip is dropped on narrow viewports rather than shrunk. */
 function FixtureChips({ fixtures }: { fixtures?: PlayerFixture[] }) {
   if (!fixtures || fixtures.length === 0) return null;
   return (
-    <div className="flex gap-0.5 justify-center mt-0.5">
-      {fixtures.slice(0, 2).map((f, i) => (
-        <span
-          key={i}
-          className={`text-[6px] font-bold px-0.5 py-px rounded leading-none ${DIFFICULTY_CHIP[f.difficulty] ?? 'bg-gray-400 text-white'}`}
-          title={`GW${f.event}: ${f.opponent_short_name} (${f.is_home ? 'H' : 'A'})`}
-        >
-          {f.opponent_short_name}
-        </span>
-      ))}
+    <div className="flex gap-0.5 justify-center mt-0.5" aria-hidden="true">
+      {fixtures.slice(0, 2).map((f, i) => {
+        const chip = DIFFICULTY_CHIP[f.difficulty] ?? { bg: 'var(--fill-2)', fg: 'var(--ink)' };
+        return (
+          <span
+            key={i}
+            className={`font-bold px-1 rounded leading-tight ${i === 1 ? 'hidden sm:inline' : ''}`}
+            style={{
+              fontSize: 'var(--text-xs)',
+              background: chip.bg,
+              color: chip.fg,
+            }}
+          >
+            {f.opponent_short_name}
+          </span>
+        );
+      })}
     </div>
   );
 }
 
+const STATUS_TINT: Record<string, string> = {
+  d: 'oklch(85% 0.15 95)',
+  i: 'oklch(58% 0.21 27)',
+  s: 'oklch(70% 0.17 45)',
+  u: 'oklch(60% 0 0)',
+};
+
 function StatusDot({ status }: { status: Player['status'] }) {
   if (status === 'a') return null;
-  const colors: Record<string, string> = { d: 'bg-yellow-400', i: 'bg-red-500', s: 'bg-orange-400', u: 'bg-gray-400' };
-  return <span className={`absolute top-0.5 right-0.5 z-30 w-2.5 h-2.5 rounded-full border border-white ${colors[status]}`} />;
+  return (
+    <span
+      className="absolute top-0.5 right-0.5 w-2.5 h-2.5 rounded-full"
+      style={{
+        zIndex: 'var(--z-badge)',
+        background: STATUS_TINT[status] ?? 'var(--ink-faint)',
+        border: '1px solid var(--color-ground)',
+      }}
+    />
+  );
 }
 
 function Goal() {
   return (
     <div className="flex justify-center mb-1">
-      <svg width="96" height="30" viewBox="0 0 96 30" fill="none">
-        <rect x="4" y="3" width="88" height="26" rx="1.5" stroke="white" strokeWidth="2.5" strokeOpacity="0.85" fill="rgba(255,255,255,0.07)" />
+      <svg width="96" height="30" viewBox="0 0 96 30" fill="none" aria-hidden="true">
+        <rect x="4" y="3" width="88" height="26" rx="1.5" stroke="var(--ink)" strokeWidth="2.5" strokeOpacity="0.85" fill="var(--fill-1)" />
         {[18, 30, 42, 54, 66, 78].map((x, i) => (
-          <line key={i} x1={x} y1={4} x2={x} y2={28} stroke="white" strokeWidth="0.7" strokeOpacity="0.25" />
+          <line key={i} x1={x} y1={4} x2={x} y2={28} stroke="var(--ink)" strokeWidth="0.7" strokeOpacity="0.25" />
         ))}
         {[11, 19].map((y, i) => (
-          <line key={i} x1={5} y1={y} x2={91} y2={y} stroke="white" strokeWidth="0.7" strokeOpacity="0.25" />
+          <line key={i} x1={5} y1={y} x2={91} y2={y} stroke="var(--ink)" strokeWidth="0.7" strokeOpacity="0.25" />
         ))}
       </svg>
     </div>
@@ -127,24 +159,29 @@ function projectPoints(player: Player, fixture?: PlayerFixture, currentGameweek:
 
 function PlayerCard({
   player, pts, isCaptain = false, isViceCaptain = false, fixtures, size = 'starter',
-  isDragging = false, isDragOver = false, isValidDrop = false,
+  isDragging = false, isTargeted = false, isSelected = false, isValidTarget = false, awaitingTarget = false,
   onDragStart, onDragOver, onDrop, onDragEnd, onDragLeave, onClick,
 }: {
   player: Player; pts: number; isCaptain?: boolean; isViceCaptain?: boolean;
   fixtures?: PlayerFixture[]; size?: 'starter' | 'bench';
-  isDragging?: boolean; isDragOver?: boolean; isValidDrop?: boolean;
+  isDragging?: boolean; isTargeted?: boolean; isSelected?: boolean;
+  isValidTarget?: boolean; awaitingTarget?: boolean;
   onDragStart: (e: React.DragEvent) => void; onDragOver: (e: React.DragEvent) => void;
   onDrop: (e: React.DragEvent) => void; onDragEnd: () => void; onDragLeave: () => void;
   onClick: () => void;
 }) {
   const isStarter = size === 'starter';
-  const cardWidth = isStarter ? 62 : 52;
-  const imgHeight = isStarter ? 58 : 48;
 
-  let borderColor = 'rgba(255,255,255,0.12)';
-  let boxShadow = 'none';
-  if (isDragOver && isValidDrop) { borderColor = '#04f5ff'; boxShadow = '0 0 14px rgba(4,245,255,0.55)'; }
-  else if (isDragOver && !isValidDrop) { borderColor = '#ff6b6b'; }
+  // One signal per state — a border colour change. No glow, no scale: the old
+  // card used three simultaneous signals for "valid target" and one for invalid.
+  let borderColor = 'var(--rule)';
+  if (isSelected) borderColor = 'var(--color-accent)';
+  else if (awaitingTarget && isValidTarget) borderColor = 'var(--color-money)';
+  else if (isTargeted && !isValidTarget) borderColor = 'var(--color-danger)';
+
+  const action = awaitingTarget
+    ? (isValidTarget ? 'swap with' : 'cannot swap with')
+    : 'view details for';
 
   return (
     <button
@@ -155,74 +192,93 @@ function PlayerCard({
       onDrop={onDrop}
       onDragEnd={onDragEnd}
       onDragLeave={onDragLeave}
-      className="focus:outline-none select-none"
+      className="select-none flex-1 min-w-0"
       style={{
-        width: `${cardWidth}px`,
+        maxWidth: isStarter ? '82px' : '72px',
         opacity: isDragging ? 0.35 : 1,
-        transform: isDragOver && isValidDrop ? 'scale(1.07)' : 'scale(1)',
-        transition: 'transform 0.1s ease, opacity 0.1s ease',
+        // Animate opacity only — the old card also animated transform on hover.
+        transition: 'opacity var(--dur-short) var(--ease-out)',
         cursor: 'grab',
       }}
-      title={`${player.web_name} — drag to substitute, tap for details`}
+      aria-label={`${player.web_name}, ${getPositionName(player.element_type)}, ${pts} points. ${describeFixtures(fixtures)}. Press to ${action} this player.`}
     >
       <div
         className="rounded-lg overflow-hidden flex flex-col"
         style={{
           background: POSITION_CARD_GRADIENT[player.element_type],
           border: `2px solid ${borderColor}`,
-          boxShadow,
         }}
       >
-        {/* Image section */}
-        <div className="relative" style={{ height: `${imgHeight}px`, overflow: 'hidden' }}>
-          {/* Initials fallback (shown when photo fails) */}
-          <div className="absolute inset-0 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.25)' }}>
+        {/* Photo, with initials showing through if it fails to load */}
+        <div className="relative" style={{ aspectRatio: '11 / 10', overflow: 'hidden' }}>
+          <div className="absolute inset-0 flex items-center justify-center" style={{ background: 'var(--shade-1)' }}>
             <div
-              className="rounded-full flex items-center justify-center font-black"
+              className="num rounded-full flex items-center justify-center font-bold"
               style={{
-                width: isStarter ? '38px' : '32px',
-                height: isStarter ? '38px' : '32px',
-                background: 'rgba(0,0,0,0.45)',
-                color: 'rgba(255,255,255,0.85)',
-                fontSize: isStarter ? '12px' : '10px',
-                letterSpacing: '0.5px',
+                width: '60%',
+                aspectRatio: '1',
+                background: 'var(--shade-2)',
+                color: 'var(--ink-muted)',
+                fontSize: 'var(--text-xs)',
               }}
             >
               {player.web_name.slice(0, 3).toUpperCase()}
             </div>
           </div>
-          {/* Player photo */}
           <img
             src={`https://resources.premierleague.com/premierleague/photos/players/110x140/p${player.code}.png`}
-            alt={player.web_name}
+            alt=""
             draggable={false}
             className="absolute inset-0 w-full h-full"
-            style={{ objectFit: 'cover', objectPosition: 'center 8%', zIndex: 1 }}
-            onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
+            style={{ objectFit: 'cover', objectPosition: 'center 8%', zIndex: 'var(--z-media)' }}
+            onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
           />
-          {/* Bottom gradient */}
-          <div className="absolute inset-x-0 bottom-0 h-6 z-10" style={{ background: 'linear-gradient(transparent, rgba(0,0,0,0.55))' }} />
-          {/* Position badge */}
+          <div
+            className="absolute inset-x-0 bottom-0 h-6"
+            style={{ zIndex: 'var(--z-scrim)', background: 'linear-gradient(transparent, var(--shade-2))' }}
+          />
           <span
-            className="absolute bottom-0.5 left-0.5 z-20 font-black uppercase"
-            style={{ fontSize: '6px', background: 'rgba(0,0,0,0.7)', color: 'rgba(255,255,255,0.9)', padding: '1px 3px', borderRadius: '2px', lineHeight: 1.4 }}
+            className="num absolute bottom-0.5 left-0.5 font-bold uppercase px-1 rounded"
+            style={{
+              zIndex: 'var(--z-badge)',
+              fontSize: 'var(--text-xs)',
+              background: 'var(--shade-3)',
+              color: 'var(--ink)',
+              lineHeight: 1.3,
+            }}
           >
             {getPositionName(player.element_type)}
           </span>
-          {/* Status dot */}
           <StatusDot status={player.status} />
-          {/* Captain/VC badge */}
-          {isCaptain && (
-            <span className="absolute top-0.5 right-0.5 z-20 w-4 h-4 rounded-full bg-yellow-400 text-black font-bold flex items-center justify-center" style={{ fontSize: '8px' }}>C</span>
-          )}
-          {isViceCaptain && (
-            <span className="absolute top-0.5 right-0.5 z-20 w-4 h-4 rounded-full bg-gray-200 text-black font-bold flex items-center justify-center" style={{ fontSize: '8px' }}>V</span>
+          {(isCaptain || isViceCaptain) && (
+            <span
+              className="num absolute top-0.5 left-0.5 w-4 h-4 rounded-full font-bold flex items-center justify-center"
+              style={{
+                zIndex: 'var(--z-badge)',
+                fontSize: 'var(--text-xs)',
+                background: isCaptain ? 'var(--color-accent)' : 'var(--ink)',
+                color: 'var(--color-ground)',
+              }}
+            >
+              {isCaptain ? 'C' : 'V'}
+            </span>
           )}
         </div>
+
         {/* Info strip */}
-        <div className="px-1 pt-0.5 pb-1 text-center" style={{ background: 'rgba(0,0,0,0.82)' }}>
-          <div className="text-white font-semibold truncate leading-tight" style={{ fontSize: isStarter ? '9px' : '8px' }}>{player.web_name}</div>
-          <div className="font-bold leading-tight" style={{ color: '#04f5ff', fontSize: isStarter ? '9px' : '8px' }}>{pts} pts</div>
+        <div className="px-1 pt-0.5 pb-1 text-center" style={{ background: 'var(--shade-3)' }}>
+          <div
+            className="font-semibold truncate leading-tight"
+            style={{ color: 'var(--ink)', fontSize: 'var(--text-xs)' }}
+          >
+            {player.web_name}
+          </div>
+          <div
+            className="num font-bold leading-tight"
+            style={{ color: 'var(--color-accent)', fontSize: 'var(--text-xs)' }}
+          >
+            {pts}
+          </div>
           <FixtureChips fixtures={fixtures} />
         </div>
       </div>
@@ -238,6 +294,9 @@ export default function SquadDisplay({
   const [pointsMode, setPointsMode] = useState<'total' | 'gw' | 'projected'>('total');
   const [draggingId, setDraggingId] = useState<number | null>(null);
   const [dragOverId, setDragOverId] = useState<number | null>(null);
+  // Touch and keyboard substitution path: HTML5 drag events never fire on touch,
+  // so a pending selection lets a tap (or Enter) choose the player, then the target.
+  const [pendingSwapId, setPendingSwapId] = useState<number | null>(null);
 
   const playerMap = Object.fromEntries(squad.map(p => [p.id, p]));
   const pickMap = Object.fromEntries(picks.map(p => [p.playerId, p]));
@@ -261,7 +320,21 @@ export default function SquadDisplay({
     starters.filter(p => p.element_type === 4),
   ];
 
-  const validDropTargets = draggingId !== null ? getValidSwaps(draggingId, picks, playerMap) : new Set<number>();
+  const activeSwapId = draggingId ?? pendingSwapId;
+  const validSwapTargets = activeSwapId !== null
+    ? getValidSwaps(activeSwapId, picks, playerMap)
+    : new Set<number>();
+
+  const applySwap = (sourceId: number, targetId: number) => {
+    const sourcePick = picks.find(p => p.playerId === sourceId);
+    const targetPick = picks.find(p => p.playerId === targetId);
+    if (!sourcePick || !targetPick) return;
+    onPicksChange(picks.map(p => {
+      if (p.playerId === sourceId) return { ...p, position: targetPick.position };
+      if (p.playerId === targetId) return { ...p, position: sourcePick.position };
+      return p;
+    }));
+  };
 
   const getPlayerDisplayPts = (player: Player): number => {
     if (pointsMode === 'total') return player.total_points;
@@ -286,209 +359,236 @@ export default function SquadDisplay({
   const displayTotal = pointsMode === 'projected' ? Math.round(teamTotal * 10) / 10 : Math.round(teamTotal);
 
   const headerLabel =
-    pointsMode === 'total' ? 'Season Total' :
-    pointsMode === 'gw' ? `GW${currentGameweek} Points` :
-    `Proj GW${projGWEvent}`;
+    pointsMode === 'total' ? 'Season total' :
+    pointsMode === 'gw' ? `GW${currentGameweek} points` :
+    `Projected GW${projGWEvent}`;
 
   const canNavLeft = projGWIndex > 0;
   const canNavRight = projGWIndex < 2 && starters.some(p => playerFixtures[p.id]?.[projGWIndex + 1]);
+
+  const pendingPlayer = pendingSwapId !== null ? playerMap[pendingSwapId] : null;
+
+  const handleCardClick = (player: Player) => {
+    if (pendingSwapId === null) { setSelectedPlayer(player); return; }
+    if (pendingSwapId === player.id) { setPendingSwapId(null); return; }
+    if (validSwapTargets.has(player.id)) {
+      applySwap(pendingSwapId, player.id);
+      setPendingSwapId(null);
+    }
+  };
 
   const makeHandlers = (player: Player) => ({
     onDragStart: (e: React.DragEvent) => {
       e.dataTransfer.setData('text/plain', String(player.id));
       e.dataTransfer.effectAllowed = 'move';
+      setPendingSwapId(null);
       setDraggingId(player.id);
     },
     onDragOver: (e: React.DragEvent) => {
       e.preventDefault();
-      e.dataTransfer.dropEffect = validDropTargets.has(player.id) ? 'move' : 'none';
+      e.dataTransfer.dropEffect = validSwapTargets.has(player.id) ? 'move' : 'none';
       if (dragOverId !== player.id) setDragOverId(player.id);
     },
     onDrop: (e: React.DragEvent) => {
       e.preventDefault();
       const sourceId = Number(e.dataTransfer.getData('text/plain'));
-      if (sourceId === player.id || !validDropTargets.has(player.id)) {
-        setDraggingId(null); setDragOverId(null); return;
+      if (sourceId !== player.id && validSwapTargets.has(player.id)) {
+        applySwap(sourceId, player.id);
       }
-      const sourcePick = picks.find(p => p.playerId === sourceId);
-      const targetPick = picks.find(p => p.playerId === player.id);
-      if (!sourcePick || !targetPick) return;
-      const newPicks = picks.map(p => {
-        if (p.playerId === sourceId) return { ...p, position: targetPick.position };
-        if (p.playerId === player.id) return { ...p, position: sourcePick.position };
-        return p;
-      });
-      onPicksChange(newPicks);
-      setDraggingId(null); setDragOverId(null);
+      setDraggingId(null);
+      setDragOverId(null);
     },
     onDragEnd: () => { setDraggingId(null); setDragOverId(null); },
     onDragLeave: () => { if (dragOverId === player.id) setDragOverId(null); },
-    onClick: () => setSelectedPlayer(player),
+    onClick: () => handleCardClick(player),
   });
+
+  const cardProps = (player: Player) => ({
+    player,
+    pts: getPlayerDisplayPts(player),
+    fixtures: playerFixtures[player.id],
+    isDragging: draggingId === player.id,
+    isTargeted: dragOverId === player.id,
+    isSelected: pendingSwapId === player.id,
+    isValidTarget: validSwapTargets.has(player.id),
+    awaitingTarget: activeSwapId !== null,
+    ...makeHandlers(player),
+  });
+
+  const modeLabel = { total: 'Season', gw: `GW${currentGameweek}`, projected: 'Projected' } as const;
 
   return (
     <>
-      <div className="rounded-xl shadow-xl overflow-hidden" style={{ border: '1px solid rgba(255,255,255,0.12)' }}>
-        {/* Header */}
-        <div className="px-4 py-3" style={{ background: 'linear-gradient(135deg, #37003c 0%, #1a0070 100%)' }}>
-          <div className="flex items-start justify-between gap-3">
-            {/* Left: name + GW + mode toggles */}
-            <div className="flex flex-col gap-1.5">
-              <div>
-                <h2 className="font-bold text-base text-white">{managerName}</h2>
-                <p className="text-xs" style={{ color: '#04f5ff' }}>Gameweek {currentGameweek}</p>
+      <div className="rounded-lg overflow-hidden" style={{ border: '1px solid var(--rule)' }}>
+        {/* Header — left-biased, not a centred row */}
+        <div
+          className="px-4 py-3"
+          style={{ background: `linear-gradient(135deg, var(--color-plum), var(--color-indigo))` }}
+        >
+          <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
+            <div>
+              <div className="num text-4xl font-bold leading-none" style={{ color: 'var(--ink)' }}>
+                {displayTotal}
               </div>
-              <div className="flex gap-1">
-                {(['total', 'gw', 'projected'] as const).map(mode => (
-                  <button
-                    key={mode}
-                    onClick={() => setPointsMode(mode)}
-                    className="text-[10px] font-semibold px-2 py-0.5 rounded-full transition-colors"
-                    style={pointsMode === mode
-                      ? { background: '#04f5ff', color: '#1a0025' }
-                      : { background: 'rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.55)' }}
-                  >
-                    {mode === 'total' ? 'Season' : mode === 'gw' ? `GW${currentGameweek}` : 'Projected'}
-                  </button>
-                ))}
+              <div
+                className="mt-1 font-semibold uppercase tracking-wide"
+                style={{ color: 'var(--color-accent)', fontSize: 'var(--text-xs)' }}
+              >
+                {headerLabel}
               </div>
-              {pointsMode === 'projected' && (
-                <div className="flex items-center gap-1.5 mt-0.5">
-                  <button
-                    onClick={() => canNavLeft && onProjGWIndexChange(projGWIndex - 1)}
-                    disabled={!canNavLeft}
-                    className="text-[11px] px-1.5 py-0.5 rounded transition-colors"
-                    style={{ color: canNavLeft ? '#04f5ff' : 'rgba(255,255,255,0.2)', background: 'rgba(255,255,255,0.06)' }}
-                  >←</button>
-                  <span className="text-[11px] font-semibold" style={{ color: '#04f5ff' }}>GW{projGWEvent}</span>
-                  <button
-                    onClick={() => canNavRight && onProjGWIndexChange(projGWIndex + 1)}
-                    disabled={!canNavRight}
-                    className="text-[11px] px-1.5 py-0.5 rounded transition-colors"
-                    style={{ color: canNavRight ? '#04f5ff' : 'rgba(255,255,255,0.2)', background: 'rgba(255,255,255,0.06)' }}
-                  >→</button>
-                </div>
-              )}
+              <h2 className="mt-2 font-semibold" style={{ color: 'var(--ink)', fontSize: 'var(--text-base)' }}>
+                {managerName}
+              </h2>
             </div>
 
-            {/* Center: team total */}
-            <div className="flex flex-col items-center justify-center flex-1">
-              <div className="text-3xl font-black text-white leading-none">{displayTotal}</div>
-              <div className="text-[10px] mt-0.5 font-semibold uppercase tracking-wide" style={{ color: '#04f5ff' }}>{headerLabel}</div>
+            <div className="flex gap-5">
+              <div>
+                <div style={{ color: 'var(--ink-muted)', fontSize: 'var(--text-xs)' }}>Team value</div>
+                <div className="num font-semibold" style={{ color: 'var(--ink)' }}>{formatPrice(teamValue)}</div>
+              </div>
+              <div>
+                <div style={{ color: 'var(--ink-muted)', fontSize: 'var(--text-xs)' }}>Bank</div>
+                <div className="num font-semibold" style={{ color: 'var(--color-money)' }}>{formatPrice(budget)}</div>
+              </div>
             </div>
+          </div>
 
-            {/* Right: value + bank */}
-            <div className="flex gap-3 text-sm text-right">
-              <div>
-                <div className="text-xs" style={{ color: '#04f5ff' }}>Team Value</div>
-                <div className="font-semibold text-white">{formatPrice(teamValue)}</div>
-              </div>
-              <div>
-                <div className="text-xs" style={{ color: '#04f5ff' }}>Bank</div>
-                <div className="font-semibold" style={{ color: '#00ff87' }}>{formatPrice(budget)}</div>
-              </div>
-            </div>
+          {/* Points mode */}
+          <div className="flex flex-wrap items-center gap-1.5 mt-3">
+            {(['total', 'gw', 'projected'] as const).map(mode => (
+              <button
+                key={mode}
+                onClick={() => setPointsMode(mode)}
+                aria-pressed={pointsMode === mode}
+                className="font-semibold px-2.5 py-1 rounded-full"
+                style={{
+                  fontSize: 'var(--text-xs)',
+                  transition: 'background-color var(--dur-short) var(--ease-out)',
+                  ...(pointsMode === mode
+                    ? { background: 'var(--color-accent)', color: 'var(--color-ground)' }
+                    : { background: 'var(--fill-2)', color: 'var(--ink-muted)' }),
+                }}
+              >
+                {modeLabel[mode]}
+              </button>
+            ))}
+
+            {pointsMode === 'projected' && (
+              <span className="inline-flex items-center gap-1 ml-1">
+                <button
+                  onClick={() => canNavLeft && onProjGWIndexChange(projGWIndex - 1)}
+                  disabled={!canNavLeft}
+                  aria-label="Previous gameweek"
+                  className="px-2 py-1 rounded disabled:opacity-40"
+                  style={{ color: 'var(--color-accent)', background: 'var(--fill-1)', fontSize: 'var(--text-xs)' }}
+                >
+                  ←
+                </button>
+                <span className="num font-semibold" style={{ color: 'var(--color-accent)', fontSize: 'var(--text-xs)' }}>
+                  GW{projGWEvent}
+                </span>
+                <button
+                  onClick={() => canNavRight && onProjGWIndexChange(projGWIndex + 1)}
+                  disabled={!canNavRight}
+                  aria-label="Next gameweek"
+                  className="px-2 py-1 rounded disabled:opacity-40"
+                  style={{ color: 'var(--color-accent)', background: 'var(--fill-1)', fontSize: 'var(--text-xs)' }}
+                >
+                  →
+                </button>
+              </span>
+            )}
           </div>
         </div>
 
         {/* Pitch */}
         <div
           className="relative w-full py-4 px-2"
-          style={{ background: 'repeating-linear-gradient(to bottom, #2d6a2d 0px, #2d6a2d 48px, #327532 48px, #327532 96px)' }}
+          style={{
+            background:
+              'repeating-linear-gradient(to bottom, var(--color-pitch-a) 0, var(--color-pitch-a) 48px, var(--color-pitch-b) 48px, var(--color-pitch-b) 96px)',
+          }}
         >
-          <div className="absolute left-6 right-6 top-1/2 h-px bg-white/20" />
-          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-20 h-20 rounded-full border border-white/20" />
-          <div className="relative z-10 flex flex-col gap-4">
+          <div className="absolute left-6 right-6 top-1/2" style={{ height: '1px', background: 'var(--rule-strong)' }} aria-hidden="true" />
+          <div
+            className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-20 h-20 rounded-full"
+            style={{ border: '1px solid var(--rule-strong)' }}
+            aria-hidden="true"
+          />
+          <div className="relative flex flex-col gap-4" style={{ zIndex: 'var(--z-base)' }}>
             {pitchRows.map((row, i) => (
               <div key={i}>
                 {i === 0 && <Goal />}
                 <div className="flex justify-center gap-1 sm:gap-2">
-                  {row.map(player => {
-                    const pick = pickMap[player.id];
-                    const h = makeHandlers(player);
-                    return (
-                      <PlayerCard
-                        key={player.id}
-                        player={player}
-                        pts={getPlayerDisplayPts(player)}
-                        isCaptain={pick?.isCaptain ?? false}
-                        isViceCaptain={pick?.isViceCaptain ?? false}
-                        fixtures={playerFixtures[player.id]}
-                        size="starter"
-                        isDragging={draggingId === player.id}
-                        isDragOver={dragOverId === player.id}
-                        isValidDrop={validDropTargets.has(player.id)}
-                        onDragStart={h.onDragStart}
-                        onDragOver={h.onDragOver}
-                        onDrop={h.onDrop}
-                        onDragEnd={h.onDragEnd}
-                        onDragLeave={h.onDragLeave}
-                        onClick={h.onClick}
-                      />
-                    );
-                  })}
+                  {row.map(player => (
+                    <PlayerCard key={player.id} size="starter" {...cardProps(player)} />
+                  ))}
                 </div>
               </div>
             ))}
           </div>
         </div>
 
-        {/* Bench */}
-        <div className="px-4 py-3" style={{ background: 'rgba(10,0,20,0.7)' }}>
-          <div className="flex items-center justify-between mb-3">
-            <p className="text-[10px] font-bold uppercase tracking-widest" style={{ color: 'rgba(255,255,255,0.4)' }}>Bench</p>
-            <p className="text-[9px]" style={{ color: 'rgba(255,255,255,0.3)' }}>Drag cards to substitute</p>
+        {/* Substitution status — the only place motion or colour shouts */}
+        {pendingPlayer && (
+          <div
+            className="px-4 py-2 flex flex-wrap items-center justify-between gap-2"
+            style={{ background: 'var(--fill-2)', fontSize: 'var(--text-xs)' }}
+            role="status"
+          >
+            <span style={{ color: 'var(--ink)' }}>
+              Substituting <strong>{pendingPlayer.web_name}</strong> — choose a highlighted player.
+            </span>
+            <button
+              onClick={() => setPendingSwapId(null)}
+              className="px-2 py-1 rounded font-semibold"
+              style={{ background: 'var(--fill-2)', color: 'var(--ink)', border: '1px solid var(--rule-strong)' }}
+            >
+              Cancel
+            </button>
           </div>
+        )}
+
+        {/* Bench */}
+        <div className="px-4 py-3" style={{ background: 'var(--color-well)' }}>
+          <p
+            className="font-bold uppercase tracking-widest mb-3"
+            style={{ color: 'var(--ink-muted)', fontSize: 'var(--text-xs)' }}
+          >
+            Bench
+          </p>
           <div className="flex justify-center gap-3 sm:gap-6">
-            {bench.map((player, i) => {
-              const h = makeHandlers(player);
-              return (
-                <div key={player.id} className="flex flex-col items-center gap-1">
-                  <span className="text-[9px] font-semibold" style={{ color: 'rgba(255,255,255,0.35)' }}>{i + 1}</span>
-                  <PlayerCard
-                    player={player}
-                    pts={getPlayerDisplayPts(player)}
-                    fixtures={playerFixtures[player.id]}
-                    size="bench"
-                    isDragging={draggingId === player.id}
-                    isDragOver={dragOverId === player.id}
-                    isValidDrop={validDropTargets.has(player.id)}
-                    onDragStart={h.onDragStart}
-                    onDragOver={h.onDragOver}
-                    onDrop={h.onDrop}
-                    onDragEnd={h.onDragEnd}
-                    onDragLeave={h.onDragLeave}
-                    onClick={h.onClick}
-                  />
-                </div>
-              );
-            })}
+            {bench.map((player, i) => (
+              <div key={player.id} className="flex flex-col items-center gap-1 flex-1" style={{ maxWidth: '72px' }}>
+                <span className="num font-semibold" style={{ color: 'var(--ink-faint)', fontSize: 'var(--text-xs)' }}>
+                  {i + 1}
+                </span>
+                <PlayerCard size="bench" {...cardProps(player)} />
+              </div>
+            ))}
           </div>
         </div>
 
-        {/* Legend */}
-        <div className="px-4 py-2 flex gap-3 flex-wrap items-center" style={{ background: 'rgba(0,0,0,0.5)' }}>
-          {[
-            { color: 'bg-yellow-500', label: 'GK' },
-            { color: 'bg-blue-500', label: 'DEF' },
-            { color: 'bg-emerald-500', label: 'MID' },
-            { color: 'bg-red-500', label: 'FWD' },
-          ].map(({ color, label }) => (
-            <div key={label} className="flex items-center gap-1">
-              <span className={`w-2 h-2 rounded-sm ${color}`} />
-              <span className="text-[9px]" style={{ color: 'rgba(255,255,255,0.5)' }}>{label}</span>
-            </div>
-          ))}
-          <div className="flex items-center gap-1">
-            <span className="w-4 h-4 rounded-full bg-yellow-400 text-black text-[8px] font-bold flex items-center justify-center">C</span>
-            <span className="text-[9px]" style={{ color: 'rgba(255,255,255,0.5)' }}>Captain</span>
-          </div>
-          <div className="ml-auto text-[9px] italic" style={{ color: 'rgba(255,255,255,0.3)' }}>Tap for details</div>
-        </div>
+        {/* Colour legend removed — every card already prints its own position badge.
+          * What remains is the one thing the pitch cannot show: how to act on it. */}
+        <p
+          className="px-4 py-2"
+          style={{ background: 'var(--shade-2)', color: 'var(--ink-muted)', fontSize: 'var(--text-xs)' }}
+        >
+          Select a player for details or to substitute. On a desktop you can also drag one card onto another.
+        </p>
       </div>
 
       {selectedPlayer && (
-        <PlayerDetailModal player={selectedPlayer} teams={teams} onClose={() => setSelectedPlayer(null)} />
+        <PlayerDetailModal
+          player={selectedPlayer}
+          teams={teams}
+          onClose={() => setSelectedPlayer(null)}
+          onSubstitute={() => {
+            setPendingSwapId(selectedPlayer.id);
+            setSelectedPlayer(null);
+          }}
+        />
       )}
     </>
   );

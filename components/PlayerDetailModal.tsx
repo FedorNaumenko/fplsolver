@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { Player, Team, PlayerFixture, PlayerHistoryEntry } from '@/lib/types';
 import { formatPrice, getPositionName } from '@/lib/utils';
 import { fetchPlayerDetail } from '@/lib/fplData';
@@ -9,6 +9,7 @@ interface Props {
   player: Player;
   teams: Team[];
   onClose: () => void;
+  onSubstitute?: () => void;
 }
 
 interface PlayerDetail {
@@ -16,12 +17,13 @@ interface PlayerDetail {
   history: PlayerHistoryEntry[];
 }
 
-const DIFFICULTY_STYLE: Record<number, string> = {
-  1: 'bg-emerald-500 text-white',
-  2: 'bg-green-400 text-white',
-  3: 'bg-yellow-400 text-gray-900',
-  4: 'bg-orange-500 text-white',
-  5: 'bg-red-600 text-white',
+/** Fixture difficulty 1 (easiest) → 5 (hardest). */
+const DIFFICULTY_CHIP: Record<number, { bg: string; fg: string }> = {
+  1: { bg: 'oklch(62% 0.15 150)', fg: 'oklch(18% 0.04 150)' },
+  2: { bg: 'oklch(75% 0.16 145)', fg: 'oklch(20% 0.05 145)' },
+  3: { bg: 'oklch(85% 0.15 95)', fg: 'oklch(25% 0.06 95)' },
+  4: { bg: 'oklch(70% 0.17 45)', fg: 'oklch(18% 0.05 45)' },
+  5: { bg: 'oklch(58% 0.21 27)', fg: 'oklch(97% 0.01 27)' },
 };
 
 const STATUS_LABEL: Record<string, string> = {
@@ -31,10 +33,11 @@ const STATUS_LABEL: Record<string, string> = {
   u: 'Unavailable',
 };
 
-export default function PlayerDetailModal({ player, teams, onClose }: Props) {
+export default function PlayerDetailModal({ player, teams, onClose, onSubstitute }: Props) {
   const [detail, setDetail] = useState<PlayerDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const ref = useRef<HTMLDialogElement>(null);
 
   const team = teams.find(t => t.id === player.team);
 
@@ -45,57 +48,92 @@ export default function PlayerDetailModal({ player, teams, onClose }: Props) {
       .finally(() => setLoading(false));
   }, [player.id]);
 
-  // Close on Escape key
+  // showModal() is what makes <dialog> a real dialog: it applies role="dialog" and
+  // aria-modal, traps Tab inside, closes on Escape, and restores focus on close —
+  // all things the previous hand-rolled div had to fake and didn't.
   useEffect(() => {
-    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [onClose]);
+    const el = ref.current;
+    if (!el?.open) el?.showModal();
+  }, []);
 
   return (
-    <div
-      className="fixed inset-0 bg-black/60 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4"
-      onClick={onClose}
+    <dialog
+      ref={ref}
+      onClose={onClose}
+      onClick={e => { if (e.target === ref.current) ref.current?.close(); }}
+      aria-labelledby="player-detail-name"
+      className="w-full sm:max-w-md max-h-[92vh] p-0 rounded-t-xl sm:rounded-xl backdrop:bg-black/60"
+      style={{ background: 'var(--color-ground)', color: 'var(--ink)', border: '1px solid var(--rule)' }}
     >
-      <div
-        className="bg-white w-full sm:rounded-xl sm:max-w-md max-h-[92vh] overflow-y-auto shadow-2xl"
-        onClick={e => e.stopPropagation()}
-      >
+      <div className="max-h-[92vh] overflow-y-auto">
         {/* Header */}
-        <div className="bg-green-900 text-white p-4 sm:rounded-t-xl sticky top-0">
-          <div className="flex items-start justify-between">
-            <div>
-              <h2 className="text-xl font-bold leading-tight">{player.web_name}</h2>
-              <p className="text-sm text-green-300">{player.first_name} {player.second_name}</p>
-              <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-                <span className="text-green-200 text-sm">{team?.name ?? '—'}</span>
-                <span className="bg-white/20 text-xs px-2 py-0.5 rounded font-semibold">
+        <div
+          className="p-4 sticky top-0"
+          style={{ background: `linear-gradient(135deg, var(--color-plum), var(--color-indigo))` }}
+        >
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <h2
+                id="player-detail-name"
+                className="font-bold leading-tight"
+                style={{ fontSize: 'var(--text-xl)', overflowWrap: 'anywhere' }}
+              >
+                {player.web_name}
+              </h2>
+              <p style={{ color: 'var(--ink-muted)', fontSize: 'var(--text-sm)' }}>
+                {player.first_name} {player.second_name}
+              </p>
+              <div className="flex items-center gap-2 mt-1.5 flex-wrap" style={{ fontSize: 'var(--text-sm)' }}>
+                <span style={{ color: 'var(--color-accent)' }}>{team?.name ?? '—'}</span>
+                <span
+                  className="num px-2 py-0.5 rounded font-semibold"
+                  style={{ background: 'var(--fill-2)', fontSize: 'var(--text-xs)' }}
+                >
                   {getPositionName(player.element_type)}
                 </span>
-                <span className="font-semibold text-sm">{formatPrice(player.now_cost)}</span>
+                <span className="num font-semibold">{formatPrice(player.now_cost)}</span>
               </div>
             </div>
             <button
-              onClick={onClose}
-              className="text-white/60 hover:text-white text-3xl leading-none ml-2 mt-[-4px]"
-              aria-label="Close"
+              onClick={() => ref.current?.close()}
+              className="shrink-0 w-8 h-8 rounded flex items-center justify-center text-2xl leading-none"
+              style={{ color: 'var(--ink-muted)', background: 'var(--fill-1)' }}
+              aria-label="Close player details"
             >
               ×
             </button>
           </div>
 
           {player.status !== 'a' && (
-            <div className="mt-2 inline-flex items-center gap-1.5 bg-red-500/80 rounded-full px-3 py-1 text-xs font-medium">
-              <span className="w-1.5 h-1.5 rounded-full bg-white" />
+            <div
+              className="mt-2 inline-flex items-center gap-1.5 rounded-full px-3 py-1 font-medium"
+              style={{ background: 'var(--color-danger)', color: 'var(--color-ground)', fontSize: 'var(--text-xs)' }}
+            >
               {STATUS_LABEL[player.status] ?? 'Unavailable'}
               {player.chance_of_playing_next_round !== null &&
                 ` — ${player.chance_of_playing_next_round}% chance next GW`}
             </div>
           )}
+
+          {/* The touch- and keyboard-reachable route into a substitution. */}
+          {onSubstitute && (
+            <button
+              onClick={() => { onSubstitute(); ref.current?.close(); }}
+              className="mt-3 w-full py-2 rounded-lg font-semibold"
+              style={{
+                background: 'var(--color-accent)',
+                color: 'var(--color-ground)',
+                fontSize: 'var(--text-sm)',
+                transition: 'opacity var(--dur-short) var(--ease-out)',
+              }}
+            >
+              Substitute this player
+            </button>
+          )}
         </div>
 
-        {/* Key stats bar */}
-        <div className="grid grid-cols-5 divide-x border-b bg-gray-50">
+        {/* Key stats */}
+        <div className="grid grid-cols-5" style={{ background: 'var(--fill-1)' }}>
           {[
             { label: 'Form', value: player.form },
             { label: 'PPG', value: Number(player.points_per_game).toFixed(1) },
@@ -103,107 +141,141 @@ export default function PlayerDetailModal({ player, teams, onClose }: Props) {
             { label: 'Sel%', value: `${Number(player.selected_by_percent).toFixed(0)}%` },
             { label: 'Total', value: player.total_points },
           ].map(({ label, value }) => (
-            <div key={label} className="py-3 text-center">
-              <div className="text-[10px] text-gray-400 uppercase tracking-wide">{label}</div>
-              <div className="font-bold text-gray-900 text-sm mt-0.5">{value}</div>
+            <div key={label} className="py-3 text-center" style={{ borderLeft: '1px solid var(--rule)' }}>
+              <div
+                className="uppercase tracking-wide"
+                style={{ color: 'var(--ink-muted)', fontSize: 'var(--text-xs)' }}
+              >
+                {label}
+              </div>
+              <div className="num font-bold mt-0.5" style={{ fontSize: 'var(--text-sm)' }}>{value}</div>
             </div>
           ))}
         </div>
 
         <div className="p-4 space-y-5">
           {loading && (
-            <div className="text-center py-8">
-              <div className="inline-block w-6 h-6 border-2 border-green-600 border-t-transparent rounded-full animate-spin" />
-              <p className="text-gray-400 text-sm mt-2">Loading player data...</p>
-            </div>
+            <p className="text-center py-8" style={{ color: 'var(--ink-muted)', fontSize: 'var(--text-sm)' }}>
+              Loading player data…
+            </p>
           )}
 
           {error && (
-            <div className="text-center py-6 text-red-500 text-sm">{error}</div>
+            <div
+              className="text-center py-6"
+              style={{ color: 'var(--color-danger-ink)', fontSize: 'var(--text-sm)' }}
+            >
+              {error}
+            </div>
           )}
 
           {detail && (
             <>
               {/* Upcoming fixtures */}
               <div>
-                <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">
-                  Next Fixtures
+                <h3
+                  className="font-bold uppercase tracking-widest mb-3"
+                  style={{ color: 'var(--ink-muted)', fontSize: 'var(--text-xs)' }}
+                >
+                  Next fixtures
                 </h3>
                 {detail.fixtures.length === 0 ? (
-                  <p className="text-sm text-gray-400">No upcoming fixtures</p>
+                  <p style={{ color: 'var(--ink-muted)', fontSize: 'var(--text-sm)' }}>No upcoming fixtures</p>
                 ) : (
                   <div className="flex gap-2">
-                    {detail.fixtures.map((f, i) => (
-                      <div key={i} className="flex flex-col items-center gap-1 flex-1">
-                        <span className="text-[10px] text-gray-400 font-medium">
-                          {f.is_home ? 'H' : 'A'}
-                        </span>
-                        <span
-                          className={`text-xs font-bold px-2 py-1.5 rounded w-full text-center ${DIFFICULTY_STYLE[f.difficulty]}`}
-                        >
-                          {f.opponent_short_name}
-                        </span>
-                        <span className="text-[10px] text-gray-400">{f.event_name.replace('Gameweek ', 'GW')}</span>
-                      </div>
-                    ))}
+                    {detail.fixtures.map((f, i) => {
+                      const chip = DIFFICULTY_CHIP[f.difficulty] ?? { bg: 'var(--fill-2)', fg: 'var(--ink)' };
+                      return (
+                        <div key={i} className="flex flex-col items-center gap-1 flex-1 min-w-0">
+                          <span
+                            className="num font-medium"
+                            style={{ color: 'var(--ink-muted)', fontSize: 'var(--text-xs)' }}
+                          >
+                            {f.is_home ? 'H' : 'A'}
+                          </span>
+                          <span
+                            className="font-bold px-2 py-1.5 rounded w-full text-center truncate"
+                            style={{ background: chip.bg, color: chip.fg, fontSize: 'var(--text-xs)' }}
+                          >
+                            {f.opponent_short_name}
+                          </span>
+                          <span
+                            className="num"
+                            style={{ color: 'var(--ink-muted)', fontSize: 'var(--text-xs)' }}
+                          >
+                            {f.event_name.replace('Gameweek ', 'GW')}
+                          </span>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </div>
 
               {/* Recent form */}
               <div>
-                <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">
-                  Recent Form
+                <h3
+                  className="font-bold uppercase tracking-widest mb-3"
+                  style={{ color: 'var(--ink-muted)', fontSize: 'var(--text-xs)' }}
+                >
+                  Recent form
                 </h3>
                 {detail.history.length === 0 ? (
-                  <p className="text-sm text-gray-400">No match history yet</p>
+                  <p style={{ color: 'var(--ink-muted)', fontSize: 'var(--text-sm)' }}>No match history yet</p>
                 ) : (
-                  <table className="w-full text-xs">
-                    <thead>
-                      <tr className="text-gray-400 border-b">
-                        <th className="text-left pb-2 font-medium">GW</th>
-                        <th className="text-left pb-2 font-medium">vs</th>
-                        <th className="text-right pb-2 font-medium">Min</th>
-                        <th className="text-right pb-2 font-medium">Pts</th>
-                        <th className="text-right pb-2 font-medium">G</th>
-                        <th className="text-right pb-2 font-medium">A</th>
-                        <th className="text-right pb-2 font-medium">CS</th>
-                        <th className="text-right pb-2 font-medium">Bon</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-50">
-                      {detail.history.map((h, i) => (
-                        <tr
-                          key={i}
-                          className={
-                            h.total_points >= 9
-                              ? 'bg-green-50'
-                              : h.total_points <= 1
-                              ? 'bg-red-50'
-                              : ''
-                          }
-                        >
-                          <td className="py-2 text-gray-400">{h.round}</td>
-                          <td className="py-2 font-medium">
-                            {h.opponent_short_name}
-                            <span className="text-gray-400 ml-1">{h.was_home ? 'H' : 'A'}</span>
-                          </td>
-                          <td className="py-2 text-right text-gray-500">{h.minutes}</td>
-                          <td className="py-2 text-right font-bold">{h.total_points}</td>
-                          <td className="py-2 text-right text-gray-600">{h.goals_scored || '—'}</td>
-                          <td className="py-2 text-right text-gray-600">{h.assists || '—'}</td>
-                          <td className="py-2 text-right text-gray-600">{h.clean_sheets || '—'}</td>
-                          <td className="py-2 text-right text-gray-600">{h.bonus || '—'}</td>
+                  <div className="overflow-x-auto">
+                    <table className="w-full num" style={{ fontSize: 'var(--text-xs)' }}>
+                      <thead>
+                        <tr style={{ color: 'var(--ink-muted)', borderBottom: '1px solid var(--rule)' }}>
+                          <th scope="col" className="text-left pb-2 font-medium">GW</th>
+                          <th scope="col" className="text-left pb-2 font-medium">vs</th>
+                          <th scope="col" className="text-right pb-2 font-medium">Min</th>
+                          <th scope="col" className="text-right pb-2 font-medium">Pts</th>
+                          <th scope="col" className="text-right pb-2 font-medium">G</th>
+                          <th scope="col" className="text-right pb-2 font-medium">A</th>
+                          <th scope="col" className="text-right pb-2 font-medium">CS</th>
+                          <th scope="col" className="text-right pb-2 font-medium">Bon</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody>
+                        {detail.history.map((h, i) => (
+                          <tr
+                            key={i}
+                            style={{
+                              borderTop: i === 0 ? undefined : '1px solid var(--rule)',
+                              // Haul at 9+, blank at 1 or less — a tint, not a full row colour.
+                              background:
+                                h.total_points >= 9
+                                  ? 'oklch(62% 0.15 150 / 0.18)'
+                                  : h.total_points <= 1
+                                  ? 'oklch(58% 0.21 27 / 0.16)'
+                                  : undefined,
+                            }}
+                          >
+                            <td className="py-2" style={{ color: 'var(--ink-muted)' }}>{h.round}</td>
+                            <td className="py-2 font-medium">
+                              {h.opponent_short_name}
+                              <span className="ml-1" style={{ color: 'var(--ink-muted)' }}>
+                                {h.was_home ? 'H' : 'A'}
+                              </span>
+                            </td>
+                            <td className="py-2 text-right" style={{ color: 'var(--ink-muted)' }}>{h.minutes}</td>
+                            <td className="py-2 text-right font-bold">{h.total_points}</td>
+                            <td className="py-2 text-right" style={{ color: 'var(--ink-muted)' }}>{h.goals_scored || '—'}</td>
+                            <td className="py-2 text-right" style={{ color: 'var(--ink-muted)' }}>{h.assists || '—'}</td>
+                            <td className="py-2 text-right" style={{ color: 'var(--ink-muted)' }}>{h.clean_sheets || '—'}</td>
+                            <td className="py-2 text-right" style={{ color: 'var(--ink-muted)' }}>{h.bonus || '—'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 )}
               </div>
             </>
           )}
         </div>
       </div>
-    </div>
+    </dialog>
   );
 }

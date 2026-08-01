@@ -12,9 +12,9 @@ function LionCrownIcon({ className = '' }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 32 36" fill="none" xmlns="http://www.w3.org/2000/svg">
       {/* 3-spike crown */}
-      <path d="M6 23 L6 17.5 L11.5 21.5 L16 11 L20.5 21.5 L26 17.5 L26 23 Z" fill="#FFD700"/>
+      <path d="M6 23 L6 17.5 L11.5 21.5 L16 11 L20.5 21.5 L26 17.5 L26 23 Z" fill="var(--color-crest)"/>
       {/* Lion mane / head — overlaps crown base for a seamless silhouette */}
-      <circle cx="16" cy="29" r="8" fill="#FFD700"/>
+      <circle cx="16" cy="29" r="8" fill="var(--color-crest)"/>
     </svg>
   );
 }
@@ -128,28 +128,56 @@ export default function Home() {
     (localBudget !== teamData.budget || localPicks.some((p, i) => teamData.picks[i]?.playerId !== p.playerId));
 
   return (
-    <div className="min-h-screen" style={{ background: 'linear-gradient(160deg, #37003c 0%, #0c0e3f 100%)' }}>
-      <header className="px-4 py-4" style={{ background: 'rgba(0,0,0,0.35)', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+    <div
+      className="min-h-screen"
+      style={{ background: 'linear-gradient(160deg, var(--color-plum), var(--color-ground-deep))' }}
+    >
+      {/* Masthead — the wordmark sits on a rule, not in a centred bar. */}
+      <header className="px-4 py-4" style={{ background: 'var(--shade-1)', borderBottom: '1px solid var(--rule)' }}>
         <div className="max-w-3xl mx-auto flex items-center gap-3">
           <LionCrownIcon className="w-10 h-10 flex-shrink-0" />
           <div>
-            <h1 className="text-2xl font-bold tracking-tight text-white">FPL Solver</h1>
-            <p className="text-sm mt-0.5" style={{ color: '#04f5ff' }}>Fantasy Premier League Transfer Advisor</p>
+            <h1
+              className="font-bold tracking-tight"
+              style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--text-xl)', color: 'var(--ink)' }}
+            >
+              FPL Solver
+            </h1>
+            <p className="text-sm mt-0.5" style={{ color: 'var(--color-accent)' }}>
+              Fantasy Premier League transfer advisor
+            </p>
           </div>
         </div>
       </header>
 
-      <main className="max-w-3xl mx-auto px-4 py-6 space-y-4">
+      {/* Left-biased column: content is not centred inside its own measure. */}
+      <main className="max-w-3xl mx-auto px-4 pb-10 space-y-5">
         <TeamInput onLoad={handleLoad} loading={loading} />
 
         {error && (
-          <div className="border px-4 py-3 rounded-lg text-sm" style={{ background: 'rgba(220,38,38,0.15)', borderColor: 'rgba(220,38,38,0.4)', color: '#fca5a5' }}>
+          <div
+            className="px-4 py-3 rounded-lg text-sm"
+            style={{
+              background: 'oklch(71.2% 0.181 22.8 / 0.15)',
+              border: '1px solid oklch(71.2% 0.181 22.8 / 0.4)',
+              color: 'var(--color-danger-ink)',
+            }}
+            role="alert"
+          >
             {error}
           </div>
         )}
 
         {notice && (
-          <div className="border px-4 py-3 rounded-lg text-sm" style={{ background: 'rgba(4,245,255,0.1)', borderColor: 'rgba(4,245,255,0.35)', color: '#a5f3fc' }}>
+          <div
+            className="px-4 py-3 rounded-lg text-sm"
+            style={{
+              background: 'oklch(88.2% 0.15 200.1 / 0.1)',
+              border: '1px solid oklch(88.2% 0.15 200.1 / 0.35)',
+              color: 'var(--color-accent)',
+            }}
+            role="status"
+          >
             {notice}
           </div>
         )}
@@ -167,11 +195,16 @@ export default function Home() {
               onProjGWIndexChange={handleProjGWIndexChange}
             />
             {hasChanges && (
-              <div className="flex justify-end mt-2">
+              <div className="flex mt-2">
                 <button
                   onClick={handleReset}
-                  className="text-xs px-3 py-1.5 rounded transition-colors"
-                  style={{ background: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.55)', border: '1px solid rgba(255,255,255,0.15)' }}
+                  className="text-xs px-3 py-1.5 rounded"
+                  style={{
+                    background: 'var(--fill-2)',
+                    color: 'var(--ink-muted)',
+                    border: '1px solid var(--rule-strong)',
+                    transition: 'color var(--dur-short) var(--ease-out)',
+                  }}
                 >
                   Reset to original
                 </button>
