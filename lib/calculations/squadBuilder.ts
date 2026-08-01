@@ -213,6 +213,7 @@ export function buildOptimalSquad(
   const picks: PickInfo[] = ordered.map((s, i) => ({
     playerId: s.player.id,
     position: i + 1,
+    elementType: s.player.element_type,
     isCaptain: s.player.id === captainId,
     isViceCaptain: s.player.id === viceCaptainId,
     multiplier: i < STARTERS ? (s.player.id === captainId ? 2 : 1) : 0,

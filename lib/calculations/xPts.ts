@@ -64,9 +64,9 @@ export function xgPointsPer90(player: Player): number {
   // which is a data gap rather than a prediction — score no defensive points for it.
   const defending = xGC90 > 0 ? Math.exp(-xGC90) * cleanSheetPoints : 0;
 
-  // Keepers earn 1 point per 3 saves; approximate the rate over minutes played.
-  const saves90 = player.minutes > 0 ? (player.saves / player.minutes) * 90 : 0;
-  const saving = player.element_type === 1 ? saves90 / 3 : 0;
+  // Keepers earn 1 point per 3 saves. Use the API's own rate rather than recomputing
+  // saves / minutes * 90 — same quantity, authoritative source.
+  const saving = player.element_type === 1 ? (Number(player.saves_per_90) || 0) / 3 : 0;
 
   return APPEARANCE_POINTS + attacking + defending + saving;
 }

@@ -1,14 +1,15 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import CrestIcon from '@/components/CrestIcon';
 import TeamInput from '@/components/TeamInput';
 import SquadDisplay from '@/components/SquadDisplay';
 import TransferPlanner from '@/components/TransferPlanner';
 import SquadEditor from '@/components/SquadEditor';
 import type { Player, PickInfo, PlayerFixture } from '@/lib/types';
 import { fetchTeamData, fetchTransfers, fetchPlayerDetail, fetchPreseasonSquad, FplNotice } from '@/lib/fplData';
-import { canSwap } from '@/lib/calculations/squadRules';
+import { canSwap, canAdd, ensureArmbands } from '@/lib/calculations/squadRules';
+import { calcExpectedPoints } from '@/lib/calculations/xPts';
+import { BASE_PATH } from '@/lib/utils';
 import type { TeamData, TransfersData, PreseasonData } from '@/lib/fplData';
 
 export default function Home() {
@@ -21,6 +22,9 @@ export default function Home() {
   const [notice, setNotice] = useState<string | null>(null);
   const [managerId, setManagerId] = useState<string>('');
   const [projGWIndex, setProjGWIndex] = useState(0);
+  // How many gameweeks every projection sums. One value for the pitch, the editor and
+  // the planner — they used to disagree, which is what made the numbers look wrong.
+  const [horizon, setHorizon] = useState(1);
   // Only set on the pre-season path — carries the player pool the editor needs.
   const [preseason, setPreseason] = useState<PreseasonData | null>(null);
 
@@ -75,18 +79,70 @@ export default function Home() {
     }
   };
 
-  const handleProjGWIndexChange = async (newIndex: number) => {
-    setProjGWIndex(newIndex);
-    // No transfers pre-season, and refetching them would just throw again. The
-    // projection columns come from playerFixtures, so the toggle still works.
+  const refreshTransfers = async (offset: number, gws: number) => {
     if (!managerId || !transfersData) return;
     setTransfersLoading(true);
     try {
-      setTransfersData(await fetchTransfers(managerId, newIndex));
+      setTransfersData(await fetchTransfers(managerId, offset, gws));
     } catch {
       // keep existing data on error
     } finally {
       setTransfersLoading(false);
+    }
+  };
+
+  const handleHorizonChange = (h: number) => {
+    setHorizon(h);
+    void refreshTransfers(projGWIndex, h);
+  };
+
+  const handleProjGWIndexChange = async (newIndex: number) => {
+    setProjGWIndex(newIndex);
+    // No transfers pre-season, and refetching them would just throw again. The
+    // projection columns come from playerFixtures, so the toggle still works.
+    await refreshTransfers(newIndex, horizon);
+  };
+
+  /** Ranking used only to re-seat an armband after a removal. */
+  const scoreFor = (playerId: number): number => {
+    const p = localSquad.find(x => x.id === playerId);
+    if (!p || !teamData) return 0;
+    return calcExpectedPoints(p, teamData.fixtures, teamData.gameweeksPlayed, horizon, projGWIndex);
+  };
+
+  /** Empty a slot without a replacement: the money returns to the bank and the slot
+   *  stays open, so a squad can be part-built. */
+  const handleRemovePlayer = (player: Player) => {
+    setLocalSquad(prev => prev.filter(p => p.id !== player.id));
+    setLocalPicks(prev => ensureArmbands(
+      prev.map(p => (p.playerId === player.id
+        ? { ...p, playerId: null, isCaptain: false, isViceCaptain: false, multiplier: 0 }
+        : p)),
+      scoreFor
+    ));
+    setLocalBudget(prev => prev + player.now_cost);
+  };
+
+  /** Fill the first empty slot of that position. */
+  const handleAddPlayer = async (elementType: number, playerIn: Player) => {
+    if (!canAdd(localSquad, playerIn, elementType, localBudget).ok) return;
+    const slot = localPicks.find(p => p.playerId === null && p.elementType === elementType);
+    if (!slot) return;
+    setLocalSquad(prev => [...prev, playerIn]);
+    setLocalPicks(prev => ensureArmbands(
+      prev.map(p => (p === slot || (p.playerId === null && p.position === slot.position)
+        ? { ...p, playerId: playerIn.id }
+        : p)),
+      scoreFor
+    ));
+    setLocalBudget(prev => prev - playerIn.now_cost);
+    try {
+      const { fixtures } = await fetchPlayerDetail(playerIn.id);
+      if (Array.isArray(fixtures)) {
+        setLocalPlayerFixtures(prev => ({ ...prev, [playerIn.id]: fixtures }));
+      }
+    } catch {
+      // projected pts will show 0 if this fails — acceptable
     }
   };
 
@@ -120,7 +176,14 @@ export default function Home() {
 
   const hasChanges =
     teamData !== null &&
-    (localBudget !== teamData.budget || localPicks.some((p, i) => teamData.picks[i]?.playerId !== p.playerId));
+    (localBudget !== teamData.budget ||
+      localSquad.length !== teamData.squad.length ||
+      // Compare occupancy as well as identity: two empty slots are equal by playerId,
+      // so emptying a slot used to register as no change at all.
+      localPicks.some((p, i) => {
+        const was = teamData.picks[i];
+        return !was || was.playerId !== p.playerId || (was.playerId === null) !== (p.playerId === null);
+      }));
 
   return (
     <div
@@ -130,7 +193,14 @@ export default function Home() {
       {/* Masthead — the wordmark sits on a rule, not in a centred bar. */}
       <header className="px-4 py-4" style={{ background: 'var(--shade-1)', borderBottom: '1px solid var(--rule)' }}>
         <div className="max-w-3xl mx-auto flex items-center gap-3">
-          <CrestIcon className="w-11 h-11 flex-shrink-0" />
+          {/* eslint-disable-next-line @next/next/no-img-element -- static export, no optimiser */}
+          <img
+            src={`${BASE_PATH}/crest.png`}
+            alt=""
+            width={44}
+            height={44}
+            className="w-11 h-11 flex-shrink-0"
+          />
           <div>
             <h1
               className="font-bold tracking-tight"
@@ -188,6 +258,8 @@ export default function Home() {
               onPicksChange={handlePicksChange}
               projGWIndex={projGWIndex}
               onProjGWIndexChange={handleProjGWIndexChange}
+              horizon={horizon}
+              onHorizonChange={handleHorizonChange}
             />
             {hasChanges && (
               <div className="flex mt-2">
@@ -211,12 +283,18 @@ export default function Home() {
         {preseason && teamData && (
           <SquadEditor
             squad={localSquad}
+            picks={localPicks}
             allPlayers={preseason.allPlayers}
             teams={preseason.teams}
             fixtures={preseason.fixtures}
             bank={localBudget}
+            horizon={horizon}
+            gwOffset={projGWIndex}
+            gameweeksPlayed={preseason.gameweeksPlayed}
             settings={preseason.settings}
             onSwap={handleApplyTransfer}
+            onRemove={handleRemovePlayer}
+            onAdd={handleAddPlayer}
           />
         )}
 

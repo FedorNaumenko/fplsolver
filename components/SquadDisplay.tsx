@@ -1,9 +1,11 @@
 'use client';
 
 import { useState } from 'react';
-import type { Player, Team, PickInfo, PlayerFixture } from '@/lib/types';
+import type { Player, Team, PickInfo, PlayerFixture, Fixture } from '@/lib/types';
+import { calcExpectedPoints } from '@/lib/calculations/xPts';
 import { formatPrice, getPositionName } from '@/lib/utils';
 import PlayerDetailModal from './PlayerDetailModal';
+import PlayerSilhouette from './PlayerSilhouette';
 
 interface Props {
   squad: Player[];
@@ -17,6 +19,13 @@ interface Props {
   onPicksChange: (picks: PickInfo[]) => void;
   projGWIndex: number;
   onProjGWIndexChange: (index: number) => void;
+  /** How many gameweeks a projection sums, shared with the editor and the planner. */
+  horizon: number;
+  onHorizonChange: (h: number) => void;
+  /** Needed by calcExpectedPoints; the pitch used to carry its own copy of the model. */
+  fixtures: Fixture[];
+  /** Minutes-multiplier divisor, shared so the pitch and the editor agree exactly. */
+  gameweeksPlayed: number;
 }
 
 const POSITION_CARD_GRADIENT: Record<number, string> = {
@@ -175,10 +184,65 @@ function GameweekStepper({
   );
 }
 
+/**
+ * How many gameweeks a projection sums. One value, read by the pitch cards, the squad
+ * editor and the transfer planner — previously the pitch showed 1 gameweek from one
+ * formula while the editor showed 3 from another.
+ */
+function HorizonPicker({
+  value, max, onChange,
+}: {
+  value: number;
+  max: number;
+  onChange: (h: number) => void;
+}) {
+  const options = [1, 2, 3, 4, 5].filter(h => h === 1 || h <= max);
+  return (
+    <span
+      className="inline-flex items-center rounded-lg overflow-hidden"
+      style={{ border: '1px solid var(--rule-strong)', background: 'var(--fill-1)' }}
+      role="group"
+      aria-label="Gameweeks to project"
+    >
+      {options.map((h, i) => (
+        <button
+          key={h}
+          type="button"
+          onClick={() => onChange(h)}
+          aria-pressed={value === h}
+          className="num font-semibold w-8 h-10"
+          style={{
+            fontSize: 'var(--text-xs)',
+            borderLeft: i === 0 ? undefined : '1px solid var(--rule-strong)',
+            transition: 'background-color var(--dur-short) var(--ease-out)',
+            ...(value === h
+              ? { background: 'var(--color-accent)', color: 'var(--color-ground)' }
+              : { color: 'var(--ink-muted)' }),
+          }}
+        >
+          {h}
+        </button>
+      ))}
+      <span
+        className="px-2 uppercase tracking-wide"
+        style={{ color: 'var(--ink-muted)', fontSize: 'var(--text-xs)' }}
+      >
+        GW
+      </span>
+    </span>
+  );
+}
+
+/**
+ * A legal starting XI. Empty slots simply do not count toward any position, so a
+ * half-built squad reads as an invalid formation — which is correct, and is why
+ * removal is never blocked on this; it only gates substitutions.
+ */
 function isValidFormation(picks: PickInfo[], playerMap: Record<number, Player>): boolean {
   const starters = picks.filter(p => p.position <= 11);
   const counts: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0 };
   for (const pick of starters) {
+    if (pick.playerId === null) continue;
     const pos = playerMap[pick.playerId]?.element_type;
     if (pos) counts[pos] = (counts[pos] ?? 0) + 1;
   }
@@ -193,38 +257,28 @@ function getValidSwaps(playerId: number, picks: PickInfo[], playerMap: Record<nu
   const isStarter = playerPick.position <= 11;
   const valid = new Set<number>();
   for (const pick of picks) {
-    if (pick.playerId === playerId) continue;
-    const targetPlayer = playerMap[pick.playerId];
+    // An empty slot is not a substitution target — it is filled from the editor.
+    if (pick.playerId === null || pick.playerId === playerId) continue;
+    const targetId = pick.playerId;
+    const targetPlayer = playerMap[targetId];
     if (!targetPlayer) continue;
     const targetIsStarter = pick.position <= 11;
     // Same zone: always valid (cosmetic reorder)
-    if (isStarter === targetIsStarter) { valid.add(pick.playerId); continue; }
+    if (isStarter === targetIsStarter) { valid.add(targetId); continue; }
     // Cross-zone: GK can only swap with GK
     if (player.element_type === 1 || targetPlayer.element_type === 1) {
-      if (player.element_type === targetPlayer.element_type) valid.add(pick.playerId);
+      if (player.element_type === targetPlayer.element_type) valid.add(targetId);
       continue;
     }
     // Cross-zone outfield: check formation
     const testPicks = picks.map(p => {
       if (p.playerId === playerId) return { ...p, position: pick.position };
-      if (p.playerId === pick.playerId) return { ...p, position: playerPick.position };
+      if (p.playerId === targetId) return { ...p, position: playerPick.position };
       return p;
     });
-    if (isValidFormation(testPicks, playerMap)) valid.add(pick.playerId);
+    if (isValidFormation(testPicks, playerMap)) valid.add(targetId);
   }
   return valid;
-}
-
-function projectPoints(player: Player, fixture?: PlayerFixture, currentGameweek: number = 38): number {
-  if (!fixture) return 0;
-  const form = parseFloat(player.form) || 0;
-  const ppg = Number(player.points_per_game) || 0;
-  const base = form > 0 ? (form * 0.6 + ppg * 0.4) : ppg;
-  if (base === 0) return 0;
-  const diffMultiplier = Math.max(0.2, (6 - fixture.difficulty) / 3);
-  const avgMins = currentGameweek > 0 ? player.minutes / currentGameweek : 60;
-  const minsMult = avgMins >= 60 ? 1.0 : avgMins >= 45 ? 0.8 : avgMins >= 30 ? 0.5 : avgMins >= 15 ? 0.25 : 0.2;
-  return Math.round(base * diffMultiplier * minsMult * 10) / 10;
 }
 
 function PlayerCard({
@@ -279,21 +333,14 @@ function PlayerCard({
           border: `2px solid ${borderColor}`,
         }}
       >
-        {/* Photo, with initials showing through if it fails to load */}
+        {/* Photo, with a silhouette showing through if it fails to load. Initials used
+          * to sit here, which read as a broken image rather than a missing photo. */}
         <div className="relative" style={{ aspectRatio: '11 / 10', overflow: 'hidden' }}>
-          <div className="absolute inset-0 flex items-center justify-center" style={{ background: 'var(--shade-1)' }}>
-            <div
-              className="num rounded-full flex items-center justify-center font-bold"
-              style={{
-                width: '60%',
-                aspectRatio: '1',
-                background: 'var(--shade-2)',
-                color: 'var(--ink-muted)',
-                fontSize: 'var(--text-xs)',
-              }}
-            >
-              {player.web_name.slice(0, 3).toUpperCase()}
-            </div>
+          <div
+            className="absolute inset-0 flex items-end justify-center"
+            style={{ background: 'var(--shade-1)' }}
+          >
+            <PlayerSilhouette className="w-full h-full" />
           </div>
           <img
             src={`https://resources.premierleague.com/premierleague/photos/players/110x140/p${player.code}.png`}
@@ -356,9 +403,42 @@ function PlayerCard({
   );
 }
 
+/**
+ * A slot whose player has been removed. Holds its place in the formation so the pitch
+ * still reads as a shape rather than silently losing a row.
+ */
+function EmptyCard({ elementType, size = 'starter' }: { elementType: number; size?: 'starter' | 'bench' }) {
+  return (
+    <div
+      className="flex-1 min-w-0"
+      style={{ maxWidth: size === 'starter' ? '82px' : '72px' }}
+      aria-label={`Empty ${getPositionName(elementType)} slot`}
+    >
+      <div
+        className="rounded-lg overflow-hidden flex flex-col"
+        style={{ background: 'var(--shade-2)', border: '2px dashed var(--rule-strong)' }}
+      >
+        <div className="relative flex items-end justify-center" style={{ aspectRatio: '11 / 10' }}>
+          <PlayerSilhouette className="w-full h-full" tone="var(--rule-strong)" />
+        </div>
+        <div className="px-1 pt-0.5 pb-1 text-center" style={{ background: 'var(--shade-3)' }}>
+          <div
+            className="num font-semibold uppercase leading-tight"
+            style={{ color: 'var(--ink-faint)', fontSize: 'var(--text-xs)' }}
+          >
+            {getPositionName(elementType)}
+          </div>
+          <div style={{ color: 'var(--ink-faint)', fontSize: 'var(--text-xs)' }}>empty</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function SquadDisplay({
   squad, picks, budget, teamValue, currentGameweek, teams, managerName,
   playerFixtures, onPicksChange, projGWIndex, onProjGWIndexChange,
+  horizon, onHorizonChange, fixtures, gameweeksPlayed,
 }: Props) {
   const [selectedPlayer, setSelectedPlayer] = useState<Player | null>(null);
   const [pointsMode, setPointsMode] = useState<'total' | 'gw' | 'projected'>('total');
@@ -369,26 +449,29 @@ export default function SquadDisplay({
   const [pendingSwapId, setPendingSwapId] = useState<number | null>(null);
 
   const playerMap = Object.fromEntries(squad.map(p => [p.id, p]));
-  const pickMap = Object.fromEntries(picks.map(p => [p.playerId, p]));
+  // Only filled picks — a null key would collide across every empty slot.
+  const pickMap = Object.fromEntries(
+    picks.filter(p => p.playerId !== null).map(p => [p.playerId as number, p])
+  );
 
-  const starters = picks
-    .filter(p => p.position <= 11)
+  // Slots rather than players, so a removed pick still holds its place in the formation
+  // instead of the pitch quietly losing a card.
+  const slots = [...picks]
     .sort((a, b) => a.position - b.position)
-    .map(p => squad.find(pl => pl.id === p.playerId))
-    .filter(Boolean) as Player[];
+    .map(pick => ({
+      pick,
+      player: pick.playerId === null ? null : playerMap[pick.playerId] ?? null,
+    }));
 
-  const bench = picks
-    .filter(p => p.position > 11)
-    .sort((a, b) => a.position - b.position)
-    .map(p => squad.find(pl => pl.id === p.playerId))
-    .filter(Boolean) as Player[];
+  const starterSlots = slots.filter(s => s.pick.position <= 11);
+  const benchSlots = slots.filter(s => s.pick.position > 11);
+  const emptyCount = slots.filter(s => s.player === null).length;
 
-  const pitchRows = [
-    starters.filter(p => p.element_type === 1),
-    starters.filter(p => p.element_type === 2),
-    starters.filter(p => p.element_type === 3),
-    starters.filter(p => p.element_type === 4),
-  ];
+  const starters = starterSlots.map(s => s.player).filter(Boolean) as Player[];
+  const bench = benchSlots.map(s => s.player).filter(Boolean) as Player[];
+
+  // Grouped on the pick's own elementType, which an empty slot still knows.
+  const pitchRows = [1, 2, 3, 4].map(t => starterSlots.filter(s => s.pick.elementType === t));
 
   const activeSwapId = draggingId ?? pendingSwapId;
   const validSwapTargets = activeSwapId !== null
@@ -409,7 +492,9 @@ export default function SquadDisplay({
   const getPlayerDisplayPts = (player: Player): number => {
     if (pointsMode === 'total') return player.total_points;
     if (pointsMode === 'gw') return player.event_points;
-    return projectPoints(player, playerFixtures[player.id]?.[projGWIndex], currentGameweek);
+    // Same function the editor, planner and builder use — the card used to run a
+    // separate formula over a different horizon, which is why the two never matched.
+    return calcExpectedPoints(player, fixtures, gameweeksPlayed, horizon, projGWIndex);
   };
 
   const projGWEvent = (() => {
@@ -431,10 +516,14 @@ export default function SquadDisplay({
   const headerLabel =
     pointsMode === 'total' ? 'Season total' :
     pointsMode === 'gw' ? `GW${currentGameweek} points` :
-    `Projected GW${projGWEvent}`;
+    horizon === 1 ? `Projected GW${projGWEvent}` : `Projected GW${projGWEvent}+${horizon - 1}`;
 
   const canNavLeft = projGWIndex > 0;
-  const canNavRight = projGWIndex < 2 && starters.some(p => playerFixtures[p.id]?.[projGWIndex + 1]);
+  // Furthest start that still leaves `horizon` fixtures to sum.
+  const fixtureDepth = Math.max(
+    0, ...starters.map(p => playerFixtures[p.id]?.length ?? 0)
+  );
+  const canNavRight = projGWIndex + horizon < fixtureDepth;
 
   const pendingPlayer = pendingSwapId !== null ? playerMap[pendingSwapId] : null;
 
@@ -544,13 +633,16 @@ export default function SquadDisplay({
             ))}
 
             {pointsMode === 'projected' && (
-              <GameweekStepper
-                gameweek={projGWEvent}
-                canPrev={canNavLeft}
-                canNext={canNavRight}
-                onPrev={() => onProjGWIndexChange(projGWIndex - 1)}
-                onNext={() => onProjGWIndexChange(projGWIndex + 1)}
-              />
+              <>
+                <GameweekStepper
+                  gameweek={projGWEvent}
+                  canPrev={canNavLeft}
+                  canNext={canNavRight}
+                  onPrev={() => onProjGWIndexChange(projGWIndex - 1)}
+                  onNext={() => onProjGWIndexChange(projGWIndex + 1)}
+                />
+                <HorizonPicker value={horizon} max={fixtureDepth} onChange={onHorizonChange} />
+              </>
             )}
           </div>
         </div>
@@ -574,8 +666,9 @@ export default function SquadDisplay({
               <div key={i}>
                 {i === 0 && <Goal />}
                 <div className="flex justify-center gap-1 sm:gap-2">
-                  {row.map(player => (
-                    <PlayerCard key={player.id} size="starter" {...cardProps(player)} />
+                  {row.map(slot => (slot.player
+                    ? <PlayerCard key={slot.pick.position} size="starter" {...cardProps(slot.player)} />
+                    : <EmptyCard key={slot.pick.position} elementType={slot.pick.elementType} size="starter" />
                   ))}
                 </div>
               </div>
@@ -612,12 +705,14 @@ export default function SquadDisplay({
             Bench
           </p>
           <div className="flex justify-center gap-3 sm:gap-6">
-            {bench.map((player, i) => (
-              <div key={player.id} className="flex flex-col items-center gap-1 flex-1" style={{ maxWidth: '72px' }}>
+            {benchSlots.map((slot, i) => (
+              <div key={slot.pick.position} className="flex flex-col items-center gap-1 flex-1" style={{ maxWidth: '72px' }}>
                 <span className="num font-semibold" style={{ color: 'var(--ink-faint)', fontSize: 'var(--text-xs)' }}>
                   {i + 1}
                 </span>
-                <PlayerCard size="bench" {...cardProps(player)} />
+                {slot.player
+                  ? <PlayerCard size="bench" {...cardProps(slot.player)} />
+                  : <EmptyCard elementType={slot.pick.elementType} size="bench" />}
               </div>
             ))}
           </div>
@@ -629,6 +724,11 @@ export default function SquadDisplay({
           className="px-4 py-2"
           style={{ background: 'var(--shade-2)', color: 'var(--ink-muted)', fontSize: 'var(--text-xs)' }}
         >
+          {emptyCount > 0 && (
+            <strong style={{ color: 'var(--color-warn)' }}>
+              {emptyCount} slot{emptyCount > 1 ? 's' : ''} empty — fill {emptyCount > 1 ? 'them' : 'it'} below.{' '}
+            </strong>
+          )}
           Select a player for details or to substitute. On a desktop you can also drag one card onto another.
         </p>
       </div>

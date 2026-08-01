@@ -27,6 +27,14 @@ export interface TeamData {
   teams: Team[];
   managerName: string;
   playerFixtures: Record<number, PlayerFixture[]>;
+  /** The pitch cards project from this; they used to carry their own copy of the model. */
+  fixtures: Fixture[];
+  /**
+   * Divisor for the minutes multiplier — gameweeks the `minutes` total covers. In-season
+   * that is the current gameweek; pre-season `minutes` still holds last season's total,
+   * so it is a full 38. Carried here so every consumer uses the same value.
+   */
+  gameweeksPlayed: number;
 }
 
 export interface TransfersData {
@@ -93,7 +101,10 @@ type RawFixture = {
   kickoff_time: string;
 };
 
-/** Next 3 unplayed fixtures per player, which is what the projected-points toggle reads. */
+/** How many upcoming fixtures to keep per player: max horizon (5) + room to step the start. */
+const FIXTURE_DEPTH = 6;
+
+/** Next few unplayed fixtures per player, which is what the projected-points toggle reads. */
 function upcomingFixturesBySquadPlayer(
   squad: Player[],
   allFixtures: RawFixture[],
@@ -106,7 +117,7 @@ function upcomingFixturesBySquadPlayer(
     byPlayer[player.id] = upcoming
       .filter(f => f.team_h === teamId || f.team_a === teamId)
       .sort((a, b) => a.event - b.event)
-      .slice(0, 3)
+      .slice(0, FIXTURE_DEPTH)
       .map(f => {
         const isHome = f.team_h === teamId;
         return {
@@ -153,6 +164,7 @@ export async function fetchTeamData(managerId: string | number): Promise<TeamDat
     const pickInfos: PickInfo[] = rawPicks.map(p => ({
       playerId: p.element,
       position: p.position,
+      elementType: allPlayers.find((pl: Player) => pl.id === p.element)?.element_type ?? 0,
       isCaptain: p.is_captain,
       isViceCaptain: p.is_vice_captain,
       multiplier: p.multiplier,
@@ -169,6 +181,8 @@ export async function fetchTeamData(managerId: string | number): Promise<TeamDat
       teams,
       managerName: managerInfo.name,
       playerFixtures,
+      fixtures: allFixtures as Fixture[],
+      gameweeksPlayed: currentGameweek,
     };
   } catch (error) {
     if (error instanceof FplNotice) throw error;
@@ -180,10 +194,11 @@ export async function fetchTeamData(managerId: string | number): Promise<TeamDat
 /** Single-transfer suggestions plus 2/3-transfer and wildcard plans. */
 export async function fetchTransfers(
   managerId: string | number,
-  gwOffsetRaw: number = 0
+  gwOffsetRaw: number = 0,
+  horizon: number = 3
 ): Promise<TransfersData> {
   const id = assertManagerId(managerId);
-  const gwOffset = Math.max(0, Math.min(2, Number(gwOffsetRaw) || 0));
+  const gwOffset = Math.max(0, Math.min(FIXTURE_DEPTH - 1, Number(gwOffsetRaw) || 0));
 
   try {
     const [bootstrap, managerInfo, fixtures] = await Promise.all([
@@ -199,10 +214,10 @@ export async function fetchTransfers(
     const squad = squadIds.map((sid: number) => allPlayers.find((p: Player) => p.id === sid)).filter((p): p is Player => Boolean(p));
     const bank: number = picks.entry_history.bank;
     const FREE_TRANSFERS = 1;
-    const suggestions = generateTransferSuggestions(squad, allPlayers, typedFixtures, bank, currentGameweek, 3, 5, gwOffset);
-    const plan2 = planMultipleTransfers(squad, allPlayers, typedFixtures, bank, currentGameweek, FREE_TRANSFERS, 2, 3, gwOffset);
-    const plan3 = planMultipleTransfers(squad, allPlayers, typedFixtures, bank, currentGameweek, FREE_TRANSFERS, 3, 3, gwOffset);
-    const wildcard = planMultipleTransfers(squad, allPlayers, typedFixtures, bank, currentGameweek, 99, 8, 3, gwOffset);
+    const suggestions = generateTransferSuggestions(squad, allPlayers, typedFixtures, bank, currentGameweek, horizon, 5, gwOffset);
+    const plan2 = planMultipleTransfers(squad, allPlayers, typedFixtures, bank, currentGameweek, FREE_TRANSFERS, 2, horizon, gwOffset);
+    const plan3 = planMultipleTransfers(squad, allPlayers, typedFixtures, bank, currentGameweek, FREE_TRANSFERS, 3, horizon, gwOffset);
+    const wildcard = planMultipleTransfers(squad, allPlayers, typedFixtures, bank, currentGameweek, 99, 8, horizon, gwOffset);
     return { suggestions, plan2, plan3, wildcard };
   } catch (error) {
     if (error instanceof FplNotice) throw error;
@@ -217,7 +232,6 @@ export async function fetchTransfers(
  */
 export interface PreseasonData extends TeamData {
   allPlayers: Player[];
-  fixtures: Fixture[];
   settings: SquadSettings;
 }
 
@@ -227,7 +241,7 @@ export interface PreseasonData extends TeamData {
  * subs and the projected-points toggle all work on it unchanged.
  */
 export async function fetchPreseasonSquad(gwOffsetRaw: number = 0): Promise<PreseasonData> {
-  const gwOffset = Math.max(0, Math.min(2, Number(gwOffsetRaw) || 0));
+  const gwOffset = Math.max(0, Math.min(FIXTURE_DEPTH - 1, Number(gwOffsetRaw) || 0));
   const [bootstrap, fixtures] = await Promise.all([
     FPLApi.getBootstrapStatic(),
     FPLApi.getFixtures(),
@@ -259,6 +273,7 @@ export async function fetchPreseasonSquad(gwOffsetRaw: number = 0): Promise<Pres
     teams,
     managerName: `Suggested GW${nextGameweek} squad`,
     playerFixtures: upcomingFixturesBySquadPlayer(built.squad, fixtures, teamMap),
+    gameweeksPlayed: PRESEASON_GAMEWEEKS,
     allPlayers: bootstrap.elements as Player[],
     fixtures: fixtures as Fixture[],
     settings,

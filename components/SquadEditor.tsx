@@ -9,23 +9,31 @@
 // had zero call sites before this), and calcExpectedPoints for the ranking.
 
 import { useMemo, useState } from 'react';
-import type { Player, Team, Fixture } from '@/lib/types';
+import type { Player, Team, Fixture, PickInfo } from '@/lib/types';
 import {
-  formatPrice, getPositionName, getPlayerName, getStatusDescription, sortPlayers, isPlayerAvailable,
+  formatPrice, getPositionName, getPlayerName, getStatusDescription, sortPlayers,
+  isPlayerAvailable, positionStats,
 } from '@/lib/utils';
-import { canSwap, DEFAULT_SETTINGS, type SquadSettings } from '@/lib/calculations/squadRules';
+import { canSwap, canAdd, DEFAULT_SETTINGS, type SquadSettings } from '@/lib/calculations/squadRules';
 import { calcExpectedPoints } from '@/lib/calculations/xPts';
 import { PRESEASON_GAMEWEEKS } from '@/lib/calculations/squadBuilder';
 
 interface Props {
   squad: Player[];
+  /** All 15 slots, including any emptied ones — the editor works on slots, not players. */
+  picks: PickInfo[];
   allPlayers: Player[];
   teams: Team[];
   fixtures: Fixture[];
   bank: number;
+  /** Gameweeks each projection sums; shared with the pitch so both print one number. */
+  horizon: number;
+  gwOffset?: number;
   gameweeksPlayed?: number;
   settings?: SquadSettings;
   onSwap: (playerOut: Player, playerIn: Player) => void;
+  onRemove: (player: Player) => void;
+  onAdd: (elementType: number, playerIn: Player) => void;
 }
 
 type SortKey = 'xpts' | 'points' | 'price' | 'value' | 'form';
@@ -38,12 +46,15 @@ const SORTS: { key: SortKey; label: string }[] = [
 ];
 
 export default function SquadEditor({
-  squad, allPlayers, teams, fixtures, bank,
+  squad, picks, allPlayers, teams, fixtures, bank, horizon,
+  gwOffset = 0,
   gameweeksPlayed = PRESEASON_GAMEWEEKS,
   settings = DEFAULT_SETTINGS,
-  onSwap,
+  onSwap, onRemove, onAdd,
 }: Props) {
   const [outId, setOutId] = useState<number | null>(null);
+  /** Position of the empty slot being filled, when one is selected instead of a player. */
+  const [fillSlot, setFillSlot] = useState<number | null>(null);
   const [query, setQuery] = useState('');
   const [teamFilter, setTeamFilter] = useState<number | 'all'>('all');
   const [sort, setSort] = useState<SortKey>('xpts');
@@ -62,9 +73,9 @@ export default function SquadEditor({
    */
   const xPtsById = useMemo(() => {
     const m = new Map<number, number>();
-    for (const p of allPlayers) m.set(p.id, calcExpectedPoints(p, fixtures, gameweeksPlayed, 3, 0));
+    for (const p of allPlayers) m.set(p.id, calcExpectedPoints(p, fixtures, gameweeksPlayed, horizon, gwOffset));
     return m;
-  }, [allPlayers, fixtures, gameweeksPlayed]);
+  }, [allPlayers, fixtures, gameweeksPlayed, horizon, gwOffset]);
   const xPts = (p: Player) => xPtsById.get(p.id) ?? 0;
 
   /** Per-club counts drive both the counter strip and canSwap's verdict. */
@@ -76,6 +87,11 @@ export default function SquadEditor({
 
   const spent = squad.reduce((sum, p) => sum + p.now_cost, 0);
 
+  const slots = [...picks].sort((a, b) => a.position - b.position);
+  const fillPick = fillSlot === null ? null : slots.find(sl => sl.position === fillSlot) ?? null;
+  /** The position being shopped for, from either a selected player or an empty slot. */
+  const activeType = playerOut?.element_type ?? fillPick?.elementType ?? null;
+
   // Candidates for the selected slot, each carrying its own legality verdict so a
   // blocked option can say why rather than silently vanishing.
   //
@@ -83,11 +99,11 @@ export default function SquadEditor({
   // and the expensive part (every projection) is already memoised above. A useMemo
   // here is one the React compiler cannot preserve, for no measurable gain.
   const candidates = (() => {
-    if (!playerOut) return [];
+    if (activeType === null) return [];
     const q = query.trim().toLowerCase();
     const pool = allPlayers.filter(p => {
-      if (p.element_type !== playerOut.element_type) return false;
-      if (p.id === playerOut.id) return false;
+      if (p.element_type !== activeType) return false;
+      if (p.id === playerOut?.id) return false;
       if (teamFilter !== 'all' && p.team !== teamFilter) return false;
       if (!q) return true;
       return getPlayerName(p).toLowerCase().includes(q) || p.web_name.toLowerCase().includes(q);
@@ -98,10 +114,26 @@ export default function SquadEditor({
       ? [...pool].sort((a, b) => (xPtsById.get(b.id) ?? 0) - (xPtsById.get(a.id) ?? 0))
       : sortPlayers(pool, sort as Exclude<SortKey, 'xpts'>, 'desc');
 
-    return ordered
-      .slice(0, 60)
-      .map(p => ({ player: p, verdict: canSwap(squad, playerOut, p, bank, settings) }));
+    return ordered.slice(0, 60).map(p => ({
+      player: p,
+      // Replacing sells the outgoing player, so his price is spendable; filling an
+      // empty slot has only the bank.
+      verdict: playerOut
+        ? canSwap(squad, playerOut, p, bank, settings)
+        : canAdd(squad, p, activeType, bank, settings),
+    }));
   })();
+
+  const select = (pick: PickInfo) => {
+    if (pick.playerId === null) {
+      setOutId(null);
+      setFillSlot(fillSlot === pick.position ? null : pick.position);
+    } else {
+      setFillSlot(null);
+      setOutId(outId === pick.playerId ? null : pick.playerId);
+    }
+    setQuery('');
+  };
 
   const label = { color: 'var(--ink-muted)', fontSize: 'var(--text-xs)' } as const;
 
@@ -116,48 +148,76 @@ export default function SquadEditor({
         </p>
       </div>
 
-      {/* Squad slots — choose the player to replace */}
+      {/* All 15 slots. Emptied ones stay listed so they can be refilled. */}
       <div className="mt-3 flex flex-wrap gap-1.5">
-        {squad.map(p => {
-          const selected = p.id === outId;
+        {slots.map(pick => {
+          const player = pick.playerId === null ? null : squad.find(p => p.id === pick.playerId) ?? null;
+          const selected = player ? player.id === outId : fillSlot === pick.position;
           return (
-            <button
-              key={p.id}
-              onClick={() => setOutId(selected ? null : p.id)}
-              aria-pressed={selected}
-              className="px-2 py-1.5 rounded-lg text-left"
+            <div
+              key={pick.position}
+              className="flex items-stretch rounded-lg overflow-hidden"
               style={{
-                fontSize: 'var(--text-xs)',
-                minWidth: '5.5rem',
-                background: selected ? 'var(--color-accent)' : 'var(--fill-2)',
-                color: selected ? 'var(--color-ground)' : 'var(--ink)',
-                border: `1px solid ${selected ? 'var(--color-accent)' : 'var(--rule)'}`,
-                transition: 'background-color var(--dur-short) var(--ease-out)',
+                border: `1px solid ${selected ? 'var(--color-accent)' : player ? 'var(--rule)' : 'var(--rule-strong)'}`,
+                borderStyle: player ? 'solid' : 'dashed',
               }}
             >
-              <span className="block truncate font-semibold">{p.web_name}</span>
-              <span className="num block" style={{ opacity: 0.75 }}>
-                {getPositionName(p.element_type)} {teamName[p.team] ?? '?'} {formatPrice(p.now_cost)}
-              </span>
-            </button>
+              <button
+                onClick={() => select(pick)}
+                aria-pressed={selected}
+                className="px-2 py-1.5 text-left"
+                style={{
+                  fontSize: 'var(--text-xs)',
+                  minWidth: '5.25rem',
+                  background: selected ? 'var(--color-accent)' : player ? 'var(--fill-2)' : 'transparent',
+                  color: selected ? 'var(--color-ground)' : player ? 'var(--ink)' : 'var(--ink-faint)',
+                  transition: 'background-color var(--dur-short) var(--ease-out)',
+                }}
+              >
+                <span className="block truncate font-semibold">
+                  {player ? player.web_name : 'Empty'}
+                </span>
+                <span className="num block" style={{ opacity: 0.75 }}>
+                  {getPositionName(pick.elementType)}{' '}
+                  {player ? `${teamName[player.team] ?? '?'} ${formatPrice(player.now_cost)}` : '— add'}
+                </span>
+              </button>
+              {player && (
+                <button
+                  onClick={() => { onRemove(player); if (outId === player.id) setOutId(null); }}
+                  aria-label={`Remove ${player.web_name}, banking ${formatPrice(player.now_cost)}`}
+                  title="Remove without replacing"
+                  className="px-2"
+                  style={{
+                    background: 'var(--fill-1)',
+                    color: 'var(--ink-muted)',
+                    borderLeft: '1px solid var(--rule)',
+                    fontSize: 'var(--text-sm)',
+                  }}
+                >
+                  ×
+                </button>
+              )}
+            </div>
           );
         })}
       </div>
 
-      {!playerOut && (
+      {activeType === null && (
         <p className="mt-3" style={label}>
-          Select a player above to see legal replacements. Limits: {settings.squadSize} players,
-          max {settings.teamLimit} per club, {formatPrice(settings.totalSpend)} budget.
+          Select a slot to see legal options, or × to remove a player and bank the money.
+          Limits: {settings.squadSize} players, max {settings.teamLimit} per club,{' '}
+          {formatPrice(settings.totalSpend)} budget.
         </p>
       )}
 
-      {playerOut && (
+      {activeType !== null && (
         <div className="mt-4">
           <div className="flex flex-wrap items-center gap-2">
             <input
               value={query}
               onChange={e => setQuery(e.target.value)}
-              placeholder={`Search ${getPositionName(playerOut.element_type)}s`}
+              placeholder={`Search ${getPositionName(activeType)}s`}
               className="flex-1 min-w-0 rounded-lg px-3 py-2"
               style={{
                 background: 'var(--fill-2)',
@@ -208,8 +268,19 @@ export default function SquadEditor({
           </div>
 
           <p className="mt-3" style={label}>
-            Replacing <strong style={{ color: 'var(--ink)' }}>{playerOut.web_name}</strong> —{' '}
-            up to {formatPrice(playerOut.now_cost + bank)} available.
+            {playerOut ? (
+              <>
+                Replacing <strong style={{ color: 'var(--ink)' }}>{playerOut.web_name}</strong> —{' '}
+                up to {formatPrice(playerOut.now_cost + bank)} available.
+              </>
+            ) : (
+              <>
+                Filling an empty{' '}
+                <strong style={{ color: 'var(--ink)' }}>{getPositionName(activeType)}</strong> slot —{' '}
+                up to {formatPrice(bank)} available.
+              </>
+            )}{' '}
+            Projections are over {horizon} gameweek{horizon > 1 ? 's' : ''}.
           </p>
 
           <ul className="mt-2 divide-y" style={{ borderColor: 'var(--rule)' }}>
@@ -237,12 +308,20 @@ export default function SquadEditor({
                   </div>
                   <div className="num" style={label}>
                     {teamName[player.team] ?? '?'} · {formatPrice(player.now_cost)} ·{' '}
-                    {xPts(player).toFixed(1)} proj · xGI/90 {Number(player.expected_goal_involvements_per_90 ?? 0).toFixed(2)}
+                    {xPts(player).toFixed(1)}/{horizon}GW
+                    {/* Position-appropriate rates: xGI is 0.00-0.01 for every keeper. */}
+                    {positionStats(player).map(st => ` · ${st.label} ${st.value}`).join('')}
                   </div>
                 </div>
                 {verdict.ok ? (
                   <button
-                    onClick={() => { onSwap(playerOut, player); setOutId(null); setQuery(''); }}
+                    onClick={() => {
+                      if (playerOut) onSwap(playerOut, player);
+                      else onAdd(activeType, player);
+                      setOutId(null);
+                      setFillSlot(null);
+                      setQuery('');
+                    }}
                     className="shrink-0 font-semibold px-3 py-1.5 rounded"
                     style={{
                       background: 'var(--color-accent)',
@@ -250,7 +329,7 @@ export default function SquadEditor({
                       fontSize: 'var(--text-xs)',
                     }}
                   >
-                    Swap in
+                    {playerOut ? 'Swap in' : 'Add'}
                   </button>
                 ) : (
                   <span

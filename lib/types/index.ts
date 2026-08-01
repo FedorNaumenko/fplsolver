@@ -65,6 +65,14 @@ export interface Player {
   expected_assists_per_90: number;
   expected_goal_involvements_per_90: number;
   expected_goals_conceded_per_90: number;
+
+  // Rates the API already computes. There is no expected_saves field — saves_per_90 is
+  // the closest thing and is what a keeper should actually be judged on, alongside
+  // xGC/90 and clean-sheet rate. xGI/90 is 0.00-0.01 for every keeper, so it is noise.
+  saves_per_90: number;
+  goals_conceded_per_90: number;
+  clean_sheets_per_90: number;
+  starts_per_90: number;
 }
 
 export interface Team {
@@ -166,8 +174,12 @@ export interface PlayerHistoryEntry {
 }
 
 export interface PickInfo {
-  playerId: number;
+  /** null when the slot has been emptied — a squad may be incomplete while you build it. */
+  playerId: number | null;
   position: number;      // 1-15 (1-11 = starters, 12-15 = bench)
+  /** Which position the slot is for. Held on the pick, not derived from the player,
+   *  because an empty slot still needs to know it wants a GK / DEF / MID / FWD. */
+  elementType: number;
   isCaptain: boolean;
   isViceCaptain: boolean;
   multiplier: number;    // 2 for captain, 1 otherwise

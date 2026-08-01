@@ -8,7 +8,7 @@
 // Limits come from bootstrap-static's game_settings rather than being hardcoded,
 // so the app follows FPL if a rule changes mid-season.
 
-import type { Player } from '../types';
+import type { Player, PickInfo } from '../types';
 
 export interface SquadSettings {
   /** Total budget in tenths — game_settings.squad_total_spend (1000 = £100.0m). */
@@ -91,4 +91,70 @@ export function canSwap(
     return { ok: false, reason: `Max ${settings.teamLimit} per club` };
   }
   return { ok: true };
+}
+
+/**
+ * Can `playerIn` fill an empty slot of `elementType`? Same rules as canSwap minus the
+ * outgoing player: nothing is being sold, so only the bank is available.
+ */
+export function canAdd(
+  squad: Player[],
+  playerIn: Player,
+  elementType: number,
+  bank: number,
+  settings: SquadSettings = DEFAULT_SETTINGS
+): SwapVerdict {
+  if (squad.some(p => p.id === playerIn.id)) {
+    return { ok: false, reason: 'Already in squad' };
+  }
+  if (playerIn.element_type !== elementType) {
+    return { ok: false, reason: 'Different position' };
+  }
+  if (playerIn.status !== 'a') {
+    return { ok: false, reason: 'Unavailable' };
+  }
+  const filled = squad.filter(p => p.element_type === elementType).length;
+  if (filled >= (settings.quota[elementType] ?? 0)) {
+    return { ok: false, reason: 'Position full' };
+  }
+  if (playerIn.now_cost > bank) {
+    return { ok: false, reason: 'Over budget' };
+  }
+  const sameClub = squad.filter(p => p.team === playerIn.team).length;
+  if (sameClub >= settings.teamLimit) {
+    return { ok: false, reason: `Max ${settings.teamLimit} per club` };
+  }
+  return { ok: true };
+}
+
+/**
+ * Guarantee an armband on a filled starter. Emptying a slot can remove the captain,
+ * which would otherwise leave the squad scoring no double.
+ *
+ * A no-op when both armbands are already on filled starters, so it is safe to call
+ * after any squad change without overriding a deliberate choice.
+ */
+export function ensureArmbands(
+  picks: PickInfo[],
+  score: (playerId: number) => number
+): PickInfo[] {
+  const filledStarters = picks.filter(p => p.position <= 11 && p.playerId !== null);
+  const capOk = filledStarters.some(p => p.isCaptain);
+  const viceOk = filledStarters.some(p => p.isViceCaptain);
+  if (capOk && viceOk) return picks;
+
+  const ranked = [...filledStarters].sort((a, b) => score(b.playerId!) - score(a.playerId!));
+  const captainId = ranked[0]?.playerId ?? null;
+  const viceId = ranked[1]?.playerId ?? null;
+
+  return picks.map(p => {
+    const filled = p.playerId !== null;
+    const isCaptain = filled && p.playerId === captainId;
+    return {
+      ...p,
+      isCaptain,
+      isViceCaptain: filled && p.playerId === viceId,
+      multiplier: !filled || p.position > 11 ? 0 : isCaptain ? 2 : 1,
+    };
+  });
 }

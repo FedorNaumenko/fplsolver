@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import type { Player, Team, PlayerFixture, PlayerHistoryEntry } from '@/lib/types';
-import { formatPrice, getPositionName } from '@/lib/utils';
+import { formatPrice, getPositionName, positionStats } from '@/lib/utils';
 import { fetchPlayerDetail } from '@/lib/fplData';
 
 interface Props {
@@ -132,14 +132,20 @@ export default function PlayerDetailModal({ player, teams, onClose, onSubstitute
           )}
         </div>
 
-        {/* Key stats */}
-        <div className="grid grid-cols-5" style={{ background: 'var(--fill-1)' }}>
+        {/* Key stats. The rate columns are position-aware — xGI is meaningless for a
+          * keeper, where saves and clean sheets are what matter. */}
+        <div
+          className="grid"
+          style={{
+            background: 'var(--fill-1)',
+            gridTemplateColumns: `repeat(${3 + positionStats(player).length}, minmax(0, 1fr))`,
+          }}
+        >
           {[
-            { label: 'Form', value: player.form },
             { label: 'PPG', value: Number(player.points_per_game).toFixed(1) },
-            { label: 'ICT', value: Number(player.ict_index).toFixed(0) },
+            { label: 'Total', value: String(player.total_points) },
             { label: 'Sel%', value: `${Number(player.selected_by_percent).toFixed(0)}%` },
-            { label: 'Total', value: player.total_points },
+            ...positionStats(player),
           ].map(({ label, value }) => (
             <div key={label} className="py-3 text-center" style={{ borderLeft: '1px solid var(--rule)' }}>
               <div
