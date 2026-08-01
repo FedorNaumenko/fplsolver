@@ -11,6 +11,25 @@ Fantasy Premier League Transfer Advisor — a Next.js web app that helps FPL man
 - **Transfer suggestions** — single and multi-transfer plans (1, 2, 3, wildcard) ranked by expected points gain, recalculated per projected GW
 - **Apply transfers** — preview your squad after a suggested transfer with live budget and 3-per-club constraint validation
 - **Wildcard planner** — greedy optimiser for up to 8 improvements with no points hit
+- **Pre-season squad builder** — between seasons FPL has no squad to load (`current_event`
+  is null and `entry/<id>/event/<gw>/picks/` 404s), so the app builds the best legal
+  £100m XV instead: 2/5/5/3, max 3 per club, ranked on projected points
+
+## Pre-season behaviour
+
+FPL exposes no squad for anyone until a gameweek deadline passes — `my-team/<id>/`
+needs a logged-in session cookie, so there is no unauthenticated route to one. Rather
+than blame the manager ID, the app says when teams unlock and shows the squad the model
+would pick. Note `form` is 0 for every player pre-season, so projections fall back to
+last season's points-per-game, and `minutes` is averaged over 38 rather than the
+current gameweek (see `getMinutesMultiplier`) — which also stops a single 90-minute
+cameo from topping the rankings.
+
+Sanity-check the builder's output against live data at any time:
+
+```bash
+node scripts/check-squad-builder.mjs
+```
 
 ## Getting Started
 

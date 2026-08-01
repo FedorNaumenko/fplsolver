@@ -15,6 +15,7 @@ import type {
 } from '@/lib/types';
 import { generateTransferSuggestions } from '@/lib/calculations/transferSuggestions';
 import { planMultipleTransfers } from '@/lib/calculations/multiTransfer';
+import { buildOptimalSquad } from '@/lib/calculations/squadBuilder';
 
 export interface TeamData {
   squad: Player[];
@@ -81,6 +82,45 @@ function requireGameweek(
   );
 }
 
+type RawFixture = {
+  event: number;
+  finished: boolean;
+  team_h: number;
+  team_a: number;
+  team_h_difficulty: number;
+  team_a_difficulty: number;
+  kickoff_time: string;
+};
+
+/** Next 3 unplayed fixtures per player, which is what the projected-points toggle reads. */
+function upcomingFixturesBySquadPlayer(
+  squad: Player[],
+  allFixtures: RawFixture[],
+  teamMap: Record<number, string>
+): Record<number, PlayerFixture[]> {
+  const upcoming = allFixtures.filter(f => !f.finished);
+  const byPlayer: Record<number, PlayerFixture[]> = {};
+  for (const player of squad) {
+    const teamId = player.team;
+    byPlayer[player.id] = upcoming
+      .filter(f => f.team_h === teamId || f.team_a === teamId)
+      .sort((a, b) => a.event - b.event)
+      .slice(0, 3)
+      .map(f => {
+        const isHome = f.team_h === teamId;
+        return {
+          event: f.event,
+          event_name: `GW${f.event}`,
+          is_home: isHome,
+          difficulty: isHome ? f.team_h_difficulty : f.team_a_difficulty,
+          kickoff_time: f.kickoff_time,
+          opponent_short_name: teamMap[isHome ? f.team_a : f.team_h] ?? '?',
+        };
+      });
+  }
+  return byPlayer;
+}
+
 /** Squad, picks, budget and upcoming fixtures for a manager. */
 export async function fetchTeamData(managerId: string | number): Promise<TeamData> {
   const id = assertManagerId(managerId);
@@ -117,30 +157,7 @@ export async function fetchTeamData(managerId: string | number): Promise<TeamDat
       multiplier: p.multiplier,
     }));
 
-    // Compute next 3 upcoming fixtures per squad player
-    const upcomingFixtures = allFixtures.filter(
-      (f: { finished: boolean }) => !f.finished
-    );
-
-    const playerFixtures: Record<number, PlayerFixture[]> = {};
-    for (const player of squad) {
-      const teamId = player.team;
-      playerFixtures[player.id] = upcomingFixtures
-        .filter((f: { team_h: number; team_a: number }) => f.team_h === teamId || f.team_a === teamId)
-        .sort((a: { event: number }, b: { event: number }) => a.event - b.event)
-        .slice(0, 3)
-        .map((f: { event: number; team_h: number; team_a: number; team_h_difficulty: number; team_a_difficulty: number; kickoff_time: string }) => {
-          const isHome = f.team_h === teamId;
-          return {
-            event: f.event,
-            event_name: `GW${f.event}`,
-            is_home: isHome,
-            difficulty: isHome ? f.team_h_difficulty : f.team_a_difficulty,
-            kickoff_time: f.kickoff_time,
-            opponent_short_name: teamMap[isHome ? f.team_a : f.team_h] ?? '?',
-          };
-        });
-    }
+    const playerFixtures = upcomingFixturesBySquadPlayer(squad, allFixtures, teamMap);
 
     return {
       squad,
@@ -191,6 +208,38 @@ export async function fetchTransfers(
     console.error('Transfers fetch error:', error);
     throw new Error('Failed to generate transfer suggestions.');
   }
+}
+
+/**
+ * Pre-season stand-in for a real squad: the best legal £100m XV the projection model
+ * can find for the upcoming window. Shaped as TeamData so SquadDisplay, the drag-drop
+ * subs and the projected-points toggle all work on it unchanged.
+ */
+export async function fetchPreseasonSquad(gwOffsetRaw: number = 0): Promise<TeamData> {
+  const gwOffset = Math.max(0, Math.min(2, Number(gwOffsetRaw) || 0));
+  const [bootstrap, fixtures] = await Promise.all([
+    FPLApi.getBootstrapStatic(),
+    FPLApi.getFixtures(),
+  ]);
+
+  const teams: Team[] = bootstrap.teams;
+  const teamMap: Record<number, string> = Object.fromEntries(
+    teams.map(t => [t.id, t.short_name])
+  );
+  const built = buildOptimalSquad(bootstrap.elements as Player[], fixtures as Fixture[], 3, gwOffset);
+  const nextGameweek: number =
+    (bootstrap.events as GameweekData[]).find(e => e.is_next)?.id ?? 1;
+
+  return {
+    squad: built.squad,
+    picks: built.picks,
+    budget: built.bank,
+    teamValue: built.teamValue,
+    currentGameweek: nextGameweek,
+    teams,
+    managerName: `Suggested GW${nextGameweek} squad`,
+    playerFixtures: upcomingFixturesBySquadPlayer(built.squad, fixtures, teamMap),
+  };
 }
 
 /** Upcoming fixtures and recent history for one player. */

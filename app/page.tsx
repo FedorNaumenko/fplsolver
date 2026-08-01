@@ -5,7 +5,7 @@ import TeamInput from '@/components/TeamInput';
 import SquadDisplay from '@/components/SquadDisplay';
 import TransferPlanner from '@/components/TransferPlanner';
 import type { Player, PickInfo, PlayerFixture } from '@/lib/types';
-import { fetchTeamData, fetchTransfers, fetchPlayerDetail, FplNotice } from '@/lib/fplData';
+import { fetchTeamData, fetchTransfers, fetchPlayerDetail, fetchPreseasonSquad, FplNotice } from '@/lib/fplData';
 import type { TeamData, TransfersData } from '@/lib/fplData';
 
 function LionCrownIcon({ className = '' }: { className?: string }) {
@@ -61,8 +61,18 @@ export default function Home() {
       setTeamData(team);
       setTransfersData(transfers);
     } catch (err) {
-      if (err instanceof FplNotice) setNotice(err.message);
-      else setError(err instanceof Error ? err.message : 'Something went wrong');
+      if (err instanceof FplNotice) {
+        setNotice(err.message);
+        // Nothing to load yet, so show the squad the model would pick instead. Both
+        // FPL fetches it needs are already cached from the attempt that just failed.
+        try {
+          setTeamData(await fetchPreseasonSquad(0));
+        } catch {
+          // notice on its own is still a useful answer
+        }
+      } else {
+        setError(err instanceof Error ? err.message : 'Something went wrong');
+      }
     } finally {
       setLoading(false);
     }
@@ -70,7 +80,9 @@ export default function Home() {
 
   const handleProjGWIndexChange = async (newIndex: number) => {
     setProjGWIndex(newIndex);
-    if (!managerId) return;
+    // No transfers pre-season, and refetching them would just throw again. The
+    // projection columns come from playerFixtures, so the toggle still works.
+    if (!managerId || !transfersData) return;
     setTransfersLoading(true);
     try {
       setTransfersData(await fetchTransfers(managerId, newIndex));
