@@ -134,15 +134,14 @@ export default function Home() {
     .filter((pl): pl is Player => pl !== null);
   const viewBank = bankAt(plan, viewedGameweek, priceOf, startingBank);
 
-  const outcomes = teamData
+  const outcome = teamData
     ? evaluatePlan(plan, {
         basePicks, playerById, fixtures: teamData.fixtures,
         gameweeks: gameweekIds.length ? gameweekIds : [viewedGameweek],
         gameweeksPlayed: teamData.gameweeksPlayed,
         rules: teamData.transferRules,
-      })
-    : [];
-  const outcome = outcomes.find(o => o.gameweek === viewedGameweek) ?? null;
+      }).find(o => o.gameweek === viewedGameweek) ?? null
+    : null;
 
   /** Record a change against the gameweek being viewed. */
   const recordMove = (outId: number | null, inId: number | null) => {
@@ -263,7 +262,7 @@ export default function Home() {
 
       {/* Left-biased column: content is not centred inside its own measure. */}
       <main className="max-w-3xl mx-auto px-4 pb-10 space-y-5">
-        <TeamInput onLoad={handleLoad} loading={loading} loadedId={teamData ? managerId : null} />
+        <TeamInput onLoad={handleLoad} loading={loading} />
 
         {error && (
           <div
@@ -309,7 +308,6 @@ export default function Home() {
               onRemovePlayer={handleRemovePlayer}
               onFillSlot={setFillSlot}
               gameweek={viewedGameweek}
-              railWeeks={outcomes.map(o => ({ gameweek: o.gameweek, chip: o.chip, hit: o.hit }))}
               chip={plan.entries.find(e => e.gameweek === viewedGameweek)?.chip ?? null}
               chipOptions={availableChips(teamData.chips, viewedGameweek, plan)}
               onChipChange={setChip}

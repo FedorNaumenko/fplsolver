@@ -5,14 +5,10 @@ import { useState } from 'react';
 interface Props {
   onLoad: (managerId: string) => void;
   loading: boolean;
-  /** Set once a squad is on screen — the form collapses so the squad leads the page. */
-  loadedId?: string | null;
 }
 
-export default function TeamInput({ onLoad, loading, loadedId }: Props) {
+export default function TeamInput({ onLoad, loading }: Props) {
   const [value, setValue] = useState('');
-  const [reopened, setReopened] = useState(false);
-  const collapsed = Boolean(loadedId) && !reopened;
 
   /**
    * Reads the field from the DOM as well as from state.
@@ -29,30 +25,6 @@ export default function TeamInput({ onLoad, loading, loadedId }: Props) {
     const id = (value.trim() || field?.value.trim() || '').replace(/[^0-9]/g, '');
     if (id) onLoad(id);
   };
-
-  // Once a squad is on screen the loader is admin, not the point of the page — it
-  // collapses to a single line so the squad leads.
-  if (collapsed) {
-    return (
-      <div className="pt-2 pb-3 flex items-center gap-3" style={{ fontSize: 'var(--text-sm)' }}>
-        <span className="num" style={{ color: 'var(--ink-muted)' }}>
-          Manager <strong style={{ color: 'var(--ink)' }}>{loadedId}</strong>
-        </span>
-        <button
-          onClick={() => setReopened(true)}
-          className="px-2.5 py-1 rounded"
-          style={{
-            background: 'var(--fill-2)',
-            color: 'var(--ink-muted)',
-            border: '1px solid var(--rule)',
-            fontSize: 'var(--text-xs)',
-          }}
-        >
-          Load a different team
-        </button>
-      </div>
-    );
-  }
 
   return (
     // No panel border here — the input sits on the page ground so the three
