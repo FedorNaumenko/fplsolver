@@ -19,7 +19,9 @@ npm install
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) and enter your **FPL Manager ID** — found in the URL of your FPL team page:
+Open [http://localhost:3000/fplsolver](http://localhost:3000/fplsolver) (the `basePath`
+matches the GitHub Pages path) and enter your **FPL Manager ID** — found in the URL of
+your FPL team page:
 
 ```
 fantasy.premierleague.com/entry/1234567/event/...
@@ -43,10 +45,33 @@ xPts = (form × 0.6 + PPG × 0.4) × difficulty_multiplier × minutes_multiplier
 
 The planner finds the best replacement for each squad player within your available budget, filtered to same position and available status.
 
+## Deploying to GitHub Pages
+
+Pages is static-only, so the app is built with `output: "export"` and all FPL calls
+run in the browser. The FPL API sends no `access-control-allow-origin` header, so
+those browser calls need a proxy — hence the three steps below.
+
+**1. Deploy the CORS proxy** (once). Open [workers.cloudflare.com](https://workers.cloudflare.com)
+→ Create Worker → paste [`worker/fpl-proxy.js`](worker/fpl-proxy.js) → Deploy. Copy the
+`https://….workers.dev` URL.
+
+**2. Set the repo variable.** Settings → Secrets and variables → Actions → Variables →
+New variable, name `FPL_PROXY`, value the worker URL **without** a trailing slash.
+The build fails with a clear error if this is missing.
+
+**3. Set the Pages source.** Settings → Pages → Build and deployment → Source =
+**GitHub Actions** (not "Deploy from a branch").
+
+Pushing to `main` then builds and publishes to
+`https://fedornaumenko.github.io/fplsolver/` via `.github/workflows/deploy.yml`.
+
+`npm run dev` needs no proxy — `next.config.ts` rewrites `/fpl/*` to the FPL API
+server-side, where CORS does not apply.
+
 ## Tech Stack
 
-- **Next.js 16** (App Router, API routes)
+- **Next.js 16** (App Router, static export)
 - **React 19**
 - **TypeScript**
 - **Tailwind CSS v4**
-- FPL official API (`fantasy.premierleague.com/api`)
+- FPL official API (`fantasy.premierleague.com/api`) via a Cloudflare Worker CORS proxy

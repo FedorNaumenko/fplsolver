@@ -4,25 +4,9 @@ import { useState, useEffect } from 'react';
 import TeamInput from '@/components/TeamInput';
 import SquadDisplay from '@/components/SquadDisplay';
 import TransferPlanner from '@/components/TransferPlanner';
-import type { Player, Team, PickInfo, TransferSuggestion, MultiTransferPlan, PlayerFixture } from '@/lib/types';
-
-interface TeamData {
-  squad: Player[];
-  picks: PickInfo[];
-  budget: number;
-  teamValue: number;
-  currentGameweek: number;
-  teams: Team[];
-  managerName: string;
-  playerFixtures: Record<number, PlayerFixture[]>;
-}
-
-interface TransfersData {
-  suggestions: TransferSuggestion[];
-  plan2: MultiTransferPlan;
-  plan3: MultiTransferPlan;
-  wildcard: MultiTransferPlan;
-}
+import type { Player, PickInfo, PlayerFixture } from '@/lib/types';
+import { fetchTeamData, fetchTransfers, fetchPlayerDetail } from '@/lib/fplData';
+import type { TeamData, TransfersData } from '@/lib/fplData';
 
 function LionCrownIcon({ className = '' }: { className?: string }) {
   return (
@@ -67,16 +51,12 @@ export default function Home() {
     setProjGWIndex(0);
 
     try {
-      const [teamRes, transfersRes] = await Promise.all([
-        fetch(`/api/team?managerId=${id}`),
-        fetch(`/api/transfers?managerId=${id}&gwOffset=0`),
+      const [team, transfers] = await Promise.all([
+        fetchTeamData(id),
+        fetchTransfers(id, 0),
       ]);
-      const teamJson = await teamRes.json();
-      if (!teamRes.ok) throw new Error(teamJson.error || 'Failed to load team');
-      const transfersJson = await transfersRes.json();
-      if (!transfersRes.ok) throw new Error(transfersJson.error || 'Failed to load suggestions');
-      setTeamData(teamJson);
-      setTransfersData(transfersJson);
+      setTeamData(team);
+      setTransfersData(transfers);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Something went wrong');
     } finally {
@@ -89,9 +69,7 @@ export default function Home() {
     if (!managerId) return;
     setTransfersLoading(true);
     try {
-      const res = await fetch(`/api/transfers?managerId=${managerId}&gwOffset=${newIndex}`);
-      const data = await res.json();
-      if (res.ok) setTransfersData(data);
+      setTransfersData(await fetchTransfers(managerId, newIndex));
     } catch {
       // keep existing data on error
     } finally {
@@ -110,12 +88,9 @@ export default function Home() {
     setLocalBudget(prev => prev - costDiff);
     // Fetch upcoming fixtures for the newly added player so projected pts work
     try {
-      const res = await fetch(`/api/player/${playerIn.id}`);
-      if (res.ok) {
-        const data = await res.json();
-        if (Array.isArray(data.fixtures)) {
-          setLocalPlayerFixtures(prev => ({ ...prev, [playerIn.id]: data.fixtures }));
-        }
+      const { fixtures } = await fetchPlayerDetail(playerIn.id);
+      if (Array.isArray(fixtures)) {
+        setLocalPlayerFixtures(prev => ({ ...prev, [playerIn.id]: fixtures }));
       }
     } catch {
       // projected pts will show 0 if this fails — acceptable

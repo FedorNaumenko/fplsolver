@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import type { Player, Team, PlayerFixture, PlayerHistoryEntry } from '@/lib/types';
 import { formatPrice, getPositionName } from '@/lib/utils';
+import { fetchPlayerDetail } from '@/lib/fplData';
 
 interface Props {
   player: Player;
@@ -38,12 +39,8 @@ export default function PlayerDetailModal({ player, teams, onClose }: Props) {
   const team = teams.find(t => t.id === player.team);
 
   useEffect(() => {
-    fetch(`/api/player/${player.id}`)
-      .then(r => r.json())
-      .then(data => {
-        if (data.error) throw new Error(data.error);
-        setDetail(data);
-      })
+    fetchPlayerDetail(player.id)
+      .then(setDetail)
       .catch(e => setError(e.message))
       .finally(() => setLoading(false));
   }, [player.id]);
