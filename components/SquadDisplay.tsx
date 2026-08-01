@@ -31,6 +31,8 @@ interface Props {
   // ── Planning, driven from this view rather than a table below it ──
   /** Absolute gameweek being viewed and planned. */
   gameweek: number;
+  /** Every planned gameweek, with the chip and hit already worked out for each. */
+  railWeeks: { gameweek: number; chip: ChipName | null; hit: number }[];
   chip: ChipName | null;
   chipOptions: ChipName[];
   onChipChange: (chip: ChipName | null) => void;
@@ -150,73 +152,111 @@ function Goal() {
   );
 }
 
-function Chevron({ dir }: { dir: 'prev' | 'next' }) {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-      <path
-        d={dir === 'prev' ? 'M10 3 L5 8 L10 13' : 'M6 3 L11 8 L6 13'}
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
+const CHIP_SHORT: Record<ChipName, string> = {
+  wildcard: 'WC',
+  freehit: 'FH',
+  bboost: 'BB',
+  '3xc': 'TC',
+};
+
+/**
+ * Difficulty as a continuous colour rather than five buckets.
+ *
+ * The rail averages eleven fixtures, and averages cluster: rounding sent nearly every
+ * week to bucket 3 and the whole strip came out one flat yellow. Interpolating between
+ * the two neighbouring buckets keeps the game's own colour language while restoring the
+ * variation that makes the strip worth looking at.
+ */
+function blendDifficulty(d: number): { bg: string; fg: string } {
+  const clamped = Math.min(5, Math.max(1, d));
+  const lo = Math.floor(clamped);
+  const hi = Math.min(5, lo + 1);
+  const t = clamped - lo;
+  const a = DIFFICULTY_CHIP[lo] ?? DIFFICULTY_CHIP[3];
+  const b = DIFFICULTY_CHIP[hi] ?? a;
+  return {
+    bg: t === 0 ? a.bg : `color-mix(in oklab, ${b.bg} ${Math.round(t * 100)}%, ${a.bg})`,
+    fg: (t < 0.5 ? a : b).fg,
+  };
+}
+
+export interface RailWeek {
+  gameweek: number;
+  /** Mean fixture difficulty across the starting XI, or null when nobody plays. */
+  difficulty: number | null;
+  /** Starters with no fixture that week — a blank is the thing you plan around. */
+  blanks: number;
+  chip: ChipName | null;
+  hit: number;
 }
 
 /**
- * One segmented control rather than three loose boxes, with 40px hit targets —
- * the previous version was a bare arrow glyph in a ~28px padded box.
+ * The signature of this app: the season as a strip you can read.
+ *
+ * FPL is a schedule game — the thing managers actually stare at is the run of fixtures,
+ * and it was buried in three-letter chips too small to scan. Each cell is one gameweek,
+ * tinted by how hard that week is for the XI you currently field, marked with any chip
+ * you have assigned and any points hit you would take. It replaced a ‹ GW1 › stepper,
+ * so it is navigation as well as the plan at a glance rather than decoration.
  */
-function GameweekStepper({
-  gameweek, canPrev, canNext, onPrev, onNext,
+function GameweekRail({
+  weeks, selected, onSelect,
 }: {
-  gameweek: number;
-  canPrev: boolean;
-  canNext: boolean;
-  onPrev: () => void;
-  onNext: () => void;
+  weeks: RailWeek[];
+  selected: number;
+  onSelect: (index: number) => void;
 }) {
-  const step = 'w-10 h-10 flex items-center justify-center disabled:opacity-30 disabled:cursor-not-allowed';
   return (
-    <span
-      className="inline-flex items-center ml-1 rounded-lg overflow-hidden"
-      style={{ border: '1px solid var(--rule-strong)', background: 'var(--fill-1)' }}
+    <div
+      className="overflow-x-auto"
+      role="group"
+      aria-label="Gameweeks — pick one to plan"
     >
-      <button
-        type="button"
-        onClick={onPrev}
-        disabled={!canPrev}
-        aria-label="Previous gameweek"
-        className={step}
-        style={{ color: 'var(--color-accent)', transition: 'background-color var(--dur-short) var(--ease-out)' }}
-      >
-        <Chevron dir="prev" />
-      </button>
-      <span
-        className="num font-semibold px-1 text-center"
-        style={{
-          color: 'var(--color-accent)',
-          fontSize: 'var(--text-xs)',
-          minWidth: '3.25rem',
-          borderInline: '1px solid var(--rule-strong)',
-          lineHeight: '2.5rem',
-        }}
-        aria-live="polite"
-      >
-        GW{gameweek}
-      </span>
-      <button
-        type="button"
-        onClick={onNext}
-        disabled={!canNext}
-        aria-label="Next gameweek"
-        className={step}
-        style={{ color: 'var(--color-accent)', transition: 'background-color var(--dur-short) var(--ease-out)' }}
-      >
-        <Chevron dir="next" />
-      </button>
-    </span>
+      <div className="flex gap-1 pb-1" style={{ minWidth: 'min-content' }}>
+        {weeks.map((w, i) => {
+          const isNow = i === selected;
+          const tint = w.difficulty === null
+            ? { bg: 'var(--fill-2)', fg: 'var(--ink-faint)' }
+            : blendDifficulty(w.difficulty);
+          const detail = [
+            w.difficulty === null ? 'blank gameweek' : `average difficulty ${w.difficulty.toFixed(1)} of 5`,
+            w.blanks > 0 && w.difficulty !== null ? `${w.blanks} without a fixture` : '',
+            w.chip ? `${CHIP_SHORT[w.chip]} chip` : '',
+            w.hit > 0 ? `${w.hit} point hit` : '',
+          ].filter(Boolean).join(', ');
+          return (
+            <button
+              key={w.gameweek}
+              type="button"
+              onClick={() => onSelect(i)}
+              aria-current={isNow ? 'true' : undefined}
+              aria-label={`Gameweek ${w.gameweek}: ${detail}`}
+              className="num shrink-0 rounded-md flex flex-col items-center justify-center"
+              style={{
+                width: '2.75rem',
+                height: '3rem',
+                background: tint.bg,
+                color: tint.fg,
+                // The selected week is the only one that gets a ring; everything else
+                // stays flat so the difficulty gradient is what you read first.
+                outline: isNow ? '2px solid var(--ink)' : 'none',
+                outlineOffset: '1px',
+                // A hit is money lost — flag it on the cell that costs it.
+                borderBottom: w.hit > 0 ? '3px solid var(--color-danger)' : '3px solid transparent',
+                transition: 'outline-color var(--dur-short) var(--ease-out)',
+              }}
+            >
+              <span className="font-bold leading-none" style={{ fontSize: 'var(--text-xs)' }}>
+                {w.gameweek}
+              </span>
+              <span className="font-bold leading-none mt-0.5" style={{ fontSize: '0.625rem', minHeight: '0.7rem' }}>
+                {w.chip ? CHIP_SHORT[w.chip] : w.difficulty === null ? '—' : ''}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
@@ -246,7 +286,7 @@ function HorizonPicker({
           type="button"
           onClick={() => onChange(h)}
           aria-pressed={value === h}
-          className="num font-semibold w-8 h-10"
+          className="num font-semibold w-7 h-7"
           style={{
             fontSize: 'var(--text-xs)',
             borderLeft: i === 0 ? undefined : '1px solid var(--rule-strong)',
@@ -260,7 +300,7 @@ function HorizonPicker({
         </button>
       ))}
       <span
-        className="px-2 uppercase tracking-wide"
+        className="px-1.5 uppercase tracking-wide"
         style={{ color: 'var(--ink-muted)', fontSize: 'var(--text-xs)' }}
       >
         GW
@@ -521,11 +561,13 @@ export default function SquadDisplay({
   squad, picks, budget, teamValue, currentGameweek, teams, managerName,
   playerFixtures, onPicksChange, projGWIndex, onProjGWIndexChange,
   horizon, onHorizonChange, fixtures, gameweeksPlayed,
-  gameweek, chip, chipOptions, onChipChange, freeTransfers, hit,
+  gameweek, railWeeks, chip, chipOptions, onChipChange, freeTransfers, hit,
   saveState, onSavePlan, onClearPlan, onRemovePlayer, onFillSlot,
 }: Props) {
   const [selectedPlayer, setSelectedPlayer] = useState<Player | null>(null);
-  const [pointsMode, setPointsMode] = useState<'total' | 'gw' | 'projected'>('total');
+  // Projected by default: this is a planning tool, so the biggest number on the page
+  // should be the projection you are deciding against, not last season's total.
+  const [pointsMode, setPointsMode] = useState<'total' | 'gw' | 'projected'>('projected');
   const [draggingId, setDraggingId] = useState<number | null>(null);
   const [dragOverId, setDragOverId] = useState<number | null>(null);
   // Touch and keyboard substitution path: HTML5 drag events never fire on touch,
@@ -552,7 +594,6 @@ export default function SquadDisplay({
   const emptyCount = slots.filter(s => s.player === null).length;
 
   const starters = starterSlots.map(s => s.player).filter(Boolean) as Player[];
-  const bench = benchSlots.map(s => s.player).filter(Boolean) as Player[];
 
   // Grouped on the pick's own elementType, which an empty slot still knows.
   const pitchRows = [1, 2, 3, 4].map(t => starterSlots.filter(s => s.pick.elementType === t));
@@ -604,12 +645,29 @@ export default function SquadDisplay({
       ? `Projected GW${projGWEvent}`
       : `Projected GW${projGWEvent}–GW${projGWEvent + horizon - 1}`;
 
-  const canNavLeft = projGWIndex > 0;
-  // Furthest start that still leaves `horizon` fixtures to sum.
-  const fixtureDepth = Math.max(
-    0, ...starters.map(p => playerFixtures[p.id]?.length ?? 0)
-  );
-  const canNavRight = projGWIndex + horizon < fixtureDepth;
+  /**
+   * One cell per planned gameweek. Difficulty is the mean across starters who actually
+   * have a fixture that week; a week where nobody plays is a blank, which in FPL is the
+   * thing you plan around rather than an absence of data.
+   */
+  const rail: RailWeek[] = railWeeks.map(w => {
+    let total = 0, played = 0;
+    for (const p of starters) {
+      const f = playerFixtures[p.id]?.find(x => x.event === w.gameweek);
+      if (f) { total += f.difficulty; played++; }
+    }
+    return {
+      gameweek: w.gameweek,
+      difficulty: played ? total / played : null,
+      blanks: starters.length - played,
+      chip: w.chip,
+      hit: w.hit,
+    };
+  });
+
+
+  /** Longest fixture list any starter has — the ceiling on the projection horizon. */
+  const fixtureDepth = Math.max(0, ...starters.map(p => playerFixtures[p.id]?.length ?? 0));
 
   const pendingPlayer = pendingSwapId !== null ? playerMap[pendingSwapId] : null;
 
@@ -721,17 +779,13 @@ export default function SquadDisplay({
               </button>
             ))}
 
-            <GameweekStepper
-              gameweek={gameweek}
-              canPrev={canNavLeft}
-              canNext={canNavRight}
-              onPrev={() => onProjGWIndexChange(projGWIndex - 1)}
-              onNext={() => onProjGWIndexChange(projGWIndex + 1)}
-            />
-            {pointsMode === 'projected' && (
-              <HorizonPicker value={horizon} max={fixtureDepth} onChange={onHorizonChange} />
-            )}
+
           </div>
+        </div>
+
+        {/* The season as a strip — difficulty, chips and hits, and the navigation. */}
+        <div className="px-4 pt-3" style={{ background: 'var(--fill-1)' }}>
+          <GameweekRail weeks={rail} selected={projGWIndex} onSelect={onProjGWIndexChange} />
         </div>
 
         {/* Planning strip — this is the planner now; there is no table below the pitch.
@@ -761,6 +815,13 @@ export default function SquadDisplay({
               ))}
             </select>
           </label>
+
+          {pointsMode === 'projected' && (
+            <span className="flex items-center gap-1.5" style={{ fontSize: 'var(--text-xs)', color: 'var(--ink-muted)' }}>
+              Projecting
+              <HorizonPicker value={horizon} max={fixtureDepth} onChange={onHorizonChange} />
+            </span>
+          )}
 
           <span className="num" style={{ fontSize: 'var(--text-xs)', color: 'var(--ink-muted)' }}>
             {freeTransfers} free transfer{freeTransfers === 1 ? '' : 's'}
