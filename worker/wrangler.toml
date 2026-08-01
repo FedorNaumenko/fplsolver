@@ -1,0 +1,7 @@
+# Deploy the CORS proxy from this directory:
+#   npx wrangler@3 login     (once — opens a browser)
+#   npx wrangler@3 deploy
+# wrangler@3 rather than @latest because @latest needs Node 22.
+name = "fpl-proxy"
+main = "fpl-proxy.js"
+compatibility_date = "2024-09-23"
