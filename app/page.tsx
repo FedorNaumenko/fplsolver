@@ -4,11 +4,14 @@ import { useState, useEffect } from 'react';
 import TeamInput from '@/components/TeamInput';
 import SquadDisplay from '@/components/SquadDisplay';
 import TransferPlanner from '@/components/TransferPlanner';
-import SquadEditor from '@/components/SquadEditor';
-import SeasonPlanner from '@/components/SeasonPlanner';
+import PlayerPickerDialog from '@/components/PlayerPickerDialog';
 import type { Player, PickInfo, PlayerFixture } from '@/lib/types';
 import { fetchTeamData, fetchTransfers, fetchPlayerDetail, fetchPreseasonSquad, FplNotice } from '@/lib/fplData';
 import { canSwap, canAdd, ensureArmbands } from '@/lib/calculations/squadRules';
+import {
+  emptyPlan, picksAt, bankAt, evaluatePlan, availableChips, savePlan, loadPlan, clearPlan,
+  type SeasonPlan, type ChipName,
+} from '@/lib/planning/seasonPlan';
 import { calcExpectedPoints } from '@/lib/calculations/xPts';
 import { BASE_PATH } from '@/lib/utils';
 import type { TeamData, TransfersData, PreseasonData } from '@/lib/fplData';
@@ -29,16 +32,21 @@ export default function Home() {
   // Only set on the pre-season path — carries the player pool the editor needs.
   const [preseason, setPreseason] = useState<PreseasonData | null>(null);
 
-  const [localSquad, setLocalSquad] = useState<Player[]>([]);
-  const [localPicks, setLocalPicks] = useState<PickInfo[]>([]);
-  const [localBudget, setLocalBudget] = useState<number>(0);
+  // The squad as it stands before any planned change, plus the plan itself. What the
+  // pitch draws is derived from these for whichever gameweek is being viewed — there is
+  // no longer a single mutable "current picks" array.
+  const [basePicks, setBasePicks] = useState<PickInfo[]>([]);
+  const [plan, setPlan] = useState<SeasonPlan>(() => emptyPlan(''));
+  const [startingBank, setStartingBank] = useState<number>(0);
   const [localPlayerFixtures, setLocalPlayerFixtures] = useState<Record<number, PlayerFixture[]>>({});
+  const [saveState, setSaveState] = useState<'clean' | 'dirty' | 'saved'>('clean');
+  /** elementType of the empty slot being filled, or null when the picker is closed. */
+  const [fillSlot, setFillSlot] = useState<number | null>(null);
 
   useEffect(() => {
     if (teamData) {
-      setLocalSquad(teamData.squad);
-      setLocalPicks(teamData.picks);
-      setLocalBudget(teamData.budget);
+      setBasePicks(teamData.picks);
+      setStartingBank(teamData.budget);
       setLocalPlayerFixtures(teamData.playerFixtures);
     }
   }, [teamData]);
@@ -60,6 +68,9 @@ export default function Home() {
       ]);
       setTeamData(team);
       setTransfersData(transfers);
+      const stored = loadPlan(id);
+      setPlan(stored ?? emptyPlan(id));
+      setSaveState(stored ? 'saved' : 'clean');
     } catch (err) {
       if (err instanceof FplNotice) {
         setNotice(err.message);
@@ -69,6 +80,9 @@ export default function Home() {
           const built = await fetchPreseasonSquad(0);
           setPreseason(built);
           setTeamData(built);
+          const stored = loadPlan(id);
+          setPlan(stored ?? emptyPlan(id));
+          setSaveState(stored ? 'saved' : 'clean');
         } catch {
           // notice on its own is still a useful answer
         }
@@ -104,39 +118,75 @@ export default function Home() {
     await refreshTransfers(newIndex, horizon);
   };
 
+  // ── Derived view state ────────────────────────────────────────────────────────
+  // Everything the pitch shows is computed for the gameweek being viewed. Writing to
+  // these would be lost on the next render; see the write targets below.
+  const playerById = new Map<number, Player>(
+    (preseason?.allPlayers ?? teamData?.squad ?? []).map(p => [p.id, p])
+  );
+  const gameweekIds = teamData?.upcomingGameweeks ?? [];
+  const viewedGameweek = gameweekIds[projGWIndex] ?? teamData?.currentGameweek ?? 1;
+  const priceOf = (id: number) => playerById.get(id)?.now_cost ?? 0;
+
+  const viewPicks = teamData ? picksAt(basePicks, plan, viewedGameweek, playerById) : [];
+  const viewSquad = viewPicks
+    .map(pk => (pk.playerId === null ? null : playerById.get(pk.playerId) ?? null))
+    .filter((pl): pl is Player => pl !== null);
+  const viewBank = bankAt(plan, viewedGameweek, priceOf, startingBank);
+
+  const outcome = teamData
+    ? evaluatePlan(plan, {
+        basePicks, playerById, fixtures: teamData.fixtures,
+        gameweeks: gameweekIds.length ? gameweekIds : [viewedGameweek],
+        gameweeksPlayed: teamData.gameweeksPlayed,
+        rules: teamData.transferRules,
+      }).find(o => o.gameweek === viewedGameweek) ?? null
+    : null;
+
+  /** Record a change against the gameweek being viewed. */
+  const recordMove = (outId: number | null, inId: number | null) => {
+    setSaveState('dirty');
+    setPlan(prev => {
+      const entries = [...prev.entries];
+      const i = entries.findIndex(e => e.gameweek === viewedGameweek);
+      const current = i >= 0 ? entries[i] : { gameweek: viewedGameweek, transfers: [], chip: null };
+      const next = { ...current, transfers: [...current.transfers, { outId, inId }] };
+      if (i >= 0) entries[i] = next; else entries.push(next);
+      return { ...prev, entries: entries.sort((a, b) => a.gameweek - b.gameweek) };
+    });
+  };
+
+  const setChip = (chip: ChipName | null) => {
+    setSaveState('dirty');
+    setPlan(prev => {
+      const entries = [...prev.entries];
+      const i = entries.findIndex(e => e.gameweek === viewedGameweek);
+      const current = i >= 0 ? entries[i] : { gameweek: viewedGameweek, transfers: [], chip: null };
+      const next = { ...current, chip };
+      const empty = next.chip === null && next.transfers.length === 0;
+      if (i >= 0) { if (empty) entries.splice(i, 1); else entries[i] = next; }
+      else if (!empty) entries.push(next);
+      return { ...prev, entries: entries.sort((a, b) => a.gameweek - b.gameweek) };
+    });
+  };
+
   /** Ranking used only to re-seat an armband after a removal. */
   const scoreFor = (playerId: number): number => {
-    const p = localSquad.find(x => x.id === playerId);
+    const p = viewSquad.find(x => x.id === playerId);
     if (!p || !teamData) return 0;
     return calcExpectedPoints(p, teamData.fixtures, teamData.gameweeksPlayed, horizon, projGWIndex);
   };
 
-  /** Empty a slot without a replacement: the money returns to the bank and the slot
-   *  stays open, so a squad can be part-built. */
-  const handleRemovePlayer = (player: Player) => {
-    setLocalSquad(prev => prev.filter(p => p.id !== player.id));
-    setLocalPicks(prev => ensureArmbands(
-      prev.map(p => (p.playerId === player.id
-        ? { ...p, playerId: null, isCaptain: false, isViceCaptain: false, multiplier: 0 }
-        : p)),
-      scoreFor
-    ));
-    setLocalBudget(prev => prev + player.now_cost);
-  };
+  /**
+   * Empty a slot without a replacement. Recorded against the gameweek being viewed, so
+   * removing someone while looking at GW4 leaves them in the squad for GW1-3.
+   */
+  const handleRemovePlayer = (player: Player) => recordMove(player.id, null);
 
-  /** Fill the first empty slot of that position. */
+  /** Fill an empty slot of that position, in the gameweek being viewed. */
   const handleAddPlayer = async (elementType: number, playerIn: Player) => {
-    if (!canAdd(localSquad, playerIn, elementType, localBudget).ok) return;
-    const slot = localPicks.find(p => p.playerId === null && p.elementType === elementType);
-    if (!slot) return;
-    setLocalSquad(prev => [...prev, playerIn]);
-    setLocalPicks(prev => ensureArmbands(
-      prev.map(p => (p === slot || (p.playerId === null && p.position === slot.position)
-        ? { ...p, playerId: playerIn.id }
-        : p)),
-      scoreFor
-    ));
-    setLocalBudget(prev => prev - playerIn.now_cost);
+    if (!canAdd(viewSquad, playerIn, elementType, viewBank).ok) return;
+    recordMove(null, playerIn.id);
     try {
       const { fixtures } = await fetchPlayerDetail(playerIn.id);
       if (Array.isArray(fixtures)) {
@@ -149,11 +199,8 @@ export default function Home() {
 
   const handleApplyTransfer = async (playerOut: Player, playerIn: Player) => {
     if (!teamData) return;
-    if (!canSwap(localSquad, playerOut, playerIn, localBudget).ok) return;
-    const costDiff = playerIn.now_cost - playerOut.now_cost;
-    setLocalSquad(prev => prev.map(p => (p.id === playerOut.id ? playerIn : p)));
-    setLocalPicks(prev => prev.map(p => (p.playerId === playerOut.id ? { ...p, playerId: playerIn.id } : p)));
-    setLocalBudget(prev => prev - costDiff);
+    if (!canSwap(viewSquad, playerOut, playerIn, viewBank).ok) return;
+    recordMove(playerOut.id, playerIn.id);
     // Fetch upcoming fixtures for the newly added player so projected pts work
     try {
       const { fixtures } = await fetchPlayerDetail(playerIn.id);
@@ -165,26 +212,26 @@ export default function Home() {
     }
   };
 
-  const handlePicksChange = (newPicks: PickInfo[]) => setLocalPicks(newPicks);
+  /**
+   * Substitutions reorder the squad rather than change who is in it, so they write to
+   * `basePicks` and apply to every gameweek. Writing to the derived picks would be lost
+   * on the next render — both are PickInfo[], so nothing would flag it.
+   */
+  const handlePicksChange = (newPicks: PickInfo[]) => {
+    setSaveState('dirty');
+    setBasePicks(ensureArmbands(newPicks, scoreFor));
+  };
 
   const handleReset = () => {
     if (!teamData) return;
-    setLocalSquad(teamData.squad);
-    setLocalPicks(teamData.picks);
-    setLocalBudget(teamData.budget);
+    setBasePicks(teamData.picks);
+    setPlan(emptyPlan(managerId));
+    setStartingBank(teamData.budget);
     setLocalPlayerFixtures(teamData.playerFixtures);
+    setSaveState('clean');
   };
 
-  const hasChanges =
-    teamData !== null &&
-    (localBudget !== teamData.budget ||
-      localSquad.length !== teamData.squad.length ||
-      // Compare occupancy as well as identity: two empty slots are equal by playerId,
-      // so emptying a slot used to register as no change at all.
-      localPicks.some((p, i) => {
-        const was = teamData.picks[i];
-        return !was || was.playerId !== p.playerId || (was.playerId === null) !== (p.playerId === null);
-      }));
+  const hasChanges = teamData !== null && (plan.entries.length > 0 || saveState === 'dirty');
 
   return (
     <div
@@ -249,15 +296,26 @@ export default function Home() {
           <div>
             <SquadDisplay
               {...teamData}
-              squad={localSquad}
-              picks={localPicks}
-              budget={localBudget}
+              squad={viewSquad}
+              picks={viewPicks}
+              budget={viewBank}
               playerFixtures={localPlayerFixtures}
               onPicksChange={handlePicksChange}
               projGWIndex={projGWIndex}
               onProjGWIndexChange={handleProjGWIndexChange}
               horizon={horizon}
               onHorizonChange={handleHorizonChange}
+              onRemovePlayer={handleRemovePlayer}
+              onFillSlot={setFillSlot}
+              gameweek={viewedGameweek}
+              chip={plan.entries.find(e => e.gameweek === viewedGameweek)?.chip ?? null}
+              chipOptions={availableChips(teamData.chips, viewedGameweek, plan)}
+              onChipChange={setChip}
+              freeTransfers={outcome?.freeAvailable ?? 0}
+              hit={outcome?.hit ?? 0}
+              saveState={saveState}
+              onSavePlan={() => { savePlan(plan); setSaveState('saved'); }}
+              onClearPlan={() => { clearPlan(managerId); setPlan(emptyPlan(managerId)); setSaveState('clean'); }}
             />
             {hasChanges && (
               <div className="flex mt-2">
@@ -278,38 +336,7 @@ export default function Home() {
           </div>
         )}
 
-        {preseason && teamData && (
-          <SquadEditor
-            squad={localSquad}
-            picks={localPicks}
-            allPlayers={preseason.allPlayers}
-            teams={preseason.teams}
-            fixtures={preseason.fixtures}
-            bank={localBudget}
-            horizon={horizon}
-            gwOffset={projGWIndex}
-            gameweeksPlayed={preseason.gameweeksPlayed}
-            settings={preseason.settings}
-            onSwap={handleApplyTransfer}
-            onRemove={handleRemovePlayer}
-            onAdd={handleAddPlayer}
-          />
-        )}
 
-        {teamData && managerId && (
-          <SeasonPlanner
-            key={managerId}
-            managerId={managerId}
-            basePicks={localPicks}
-            allPlayers={preseason?.allPlayers ?? localSquad}
-            fixtures={teamData.fixtures}
-            chips={teamData.chips}
-            rules={teamData.transferRules}
-            gameweeks={teamData.upcomingGameweeks}
-            gameweeksPlayed={teamData.gameweeksPlayed}
-            bank={localBudget}
-          />
-        )}
 
         {transfersData && (
           <TransferPlanner
@@ -317,10 +344,27 @@ export default function Home() {
             plan2={transfersData.plan2}
             plan3={transfersData.plan3}
             wildcard={transfersData.wildcard}
-            localSquad={localSquad}
-            localBudget={localBudget}
+            localSquad={viewSquad}
+            localBudget={viewBank}
             onApplyTransfer={handleApplyTransfer}
             transfersLoading={transfersLoading}
+          />
+        )}
+        {fillSlot !== null && teamData && (
+          <PlayerPickerDialog
+            elementType={fillSlot}
+            squad={viewSquad}
+            allPlayers={preseason?.allPlayers ?? teamData.squad}
+            teams={teamData.teams}
+            fixtures={teamData.fixtures}
+            bank={viewBank}
+            horizon={horizon}
+            gwOffset={projGWIndex}
+            gameweeksPlayed={teamData.gameweeksPlayed}
+            settings={preseason?.settings}
+            gameweek={viewedGameweek}
+            onPick={player => { void handleAddPlayer(fillSlot, player); setFillSlot(null); }}
+            onClose={() => setFillSlot(null)}
           />
         )}
       </main>

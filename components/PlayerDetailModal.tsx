@@ -10,6 +10,7 @@ interface Props {
   teams: Team[];
   onClose: () => void;
   onSubstitute?: () => void;
+  onRemove?: () => void;
 }
 
 interface PlayerDetail {
@@ -33,7 +34,7 @@ const STATUS_LABEL: Record<string, string> = {
   u: 'Unavailable',
 };
 
-export default function PlayerDetailModal({ player, teams, onClose, onSubstitute }: Props) {
+export default function PlayerDetailModal({ player, teams, onClose, onSubstitute, onRemove }: Props) {
   const [detail, setDetail] = useState<PlayerDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -115,20 +116,38 @@ export default function PlayerDetailModal({ player, teams, onClose, onSubstitute
             </div>
           )}
 
-          {/* The touch- and keyboard-reachable route into a substitution. */}
-          {onSubstitute && (
-            <button
-              onClick={() => { onSubstitute(); ref.current?.close(); }}
-              className="mt-3 w-full py-2 rounded-lg font-semibold"
-              style={{
-                background: 'var(--color-accent)',
-                color: 'var(--color-ground)',
-                fontSize: 'var(--text-sm)',
-                transition: 'opacity var(--dur-short) var(--ease-out)',
-              }}
-            >
-              Substitute this player
-            </button>
+          {/* The touch- and keyboard-reachable routes into changing the squad. */}
+          {(onSubstitute || onRemove) && (
+            <div className="mt-3 flex gap-2">
+              {onSubstitute && (
+                <button
+                  onClick={() => { onSubstitute(); ref.current?.close(); }}
+                  className="flex-1 py-2 rounded-lg font-semibold"
+                  style={{
+                    background: 'var(--color-accent)',
+                    color: 'var(--color-ground)',
+                    fontSize: 'var(--text-sm)',
+                    transition: 'opacity var(--dur-short) var(--ease-out)',
+                  }}
+                >
+                  Substitute
+                </button>
+              )}
+              {onRemove && (
+                <button
+                  onClick={() => { onRemove(); ref.current?.close(); }}
+                  className="flex-1 py-2 rounded-lg font-semibold"
+                  style={{
+                    background: 'oklch(71.2% 0.181 22.8 / 0.15)',
+                    border: '1px solid oklch(71.2% 0.181 22.8 / 0.4)',
+                    color: 'var(--color-danger-ink)',
+                    fontSize: 'var(--text-sm)',
+                  }}
+                >
+                  Remove
+                </button>
+              )}
+            </div>
           )}
         </div>
 

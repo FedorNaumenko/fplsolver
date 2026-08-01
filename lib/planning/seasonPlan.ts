@@ -26,9 +26,14 @@ export interface ChipDef {
   chip_type: string;
 }
 
+/**
+ * One squad change in a gameweek. Both ends are nullable so the same record covers all
+ * three moves the pitch can make: a swap (both set), a removal (`inId` null) and filling
+ * an empty slot (`outId` null).
+ */
 export interface PlannedTransfer2 {
-  outId: number;
-  inId: number;
+  outId: number | null;
+  inId: number | null;
 }
 
 export interface GameweekEntry {
@@ -107,11 +112,71 @@ export function squadAt(basePicks: PickInfo[], plan: SeasonPlan, gameweek: numbe
     const temporary = entry.chip === 'freehit';
     if (temporary && entry.gameweek !== gameweek) continue;
     for (const t of entry.transfers) {
+      if (t.outId === null) {
+        // Filling an empty slot: take the first hole.
+        const hole = slots.indexOf(null);
+        if (hole >= 0) slots[hole] = t.inId;
+        continue;
+      }
       const i = slots.indexOf(t.outId);
-      if (i >= 0) slots[i] = t.inId;
+      if (i >= 0) slots[i] = t.inId; // inId null empties the slot
     }
   }
   return slots;
+}
+
+/**
+ * The full squad for `gameweek` as picks, not bare ids.
+ *
+ * `squadAt` is enough for scoring, but the pitch needs whole picks so slot position,
+ * `elementType` and the armbands survive a transfer. `elementType` follows the incoming
+ * player where one is known, since a transfer can only be same-position but a slot
+ * emptied and refilled later must still describe itself.
+ */
+export function picksAt(
+  basePicks: PickInfo[],
+  plan: SeasonPlan,
+  gameweek: number,
+  playerById?: Map<number, { element_type: number }>
+): PickInfo[] {
+  const ordered = [...basePicks].sort((a, b) => a.position - b.position);
+  const ids = squadAt(basePicks, plan, gameweek);
+
+  return ordered.map((pick, i) => {
+    const playerId = ids[i] ?? null;
+    if (playerId === pick.playerId) return pick;
+    const incoming = playerId === null ? undefined : playerById?.get(playerId);
+    return {
+      ...pick,
+      playerId,
+      elementType: incoming?.element_type ?? pick.elementType,
+      // An armband cannot sit on a slot that is now empty.
+      isCaptain: playerId === null ? false : pick.isCaptain,
+      isViceCaptain: playerId === null ? false : pick.isViceCaptain,
+      multiplier: playerId === null ? 0 : pick.multiplier,
+    };
+  });
+}
+
+/**
+ * Money in hand at `gameweek`, replaying the plan's changes over the starting bank.
+ * A free-hit week's spending applies to that week only, exactly as its squad does.
+ */
+export function bankAt(
+  plan: SeasonPlan,
+  gameweek: number,
+  priceOf: (playerId: number) => number,
+  startingBank: number
+): number {
+  let bank = startingBank;
+  for (const entry of [...plan.entries].sort((a, b) => a.gameweek - b.gameweek)) {
+    if (entry.gameweek > gameweek) break;
+    if (entry.chip === 'freehit' && entry.gameweek !== gameweek) continue;
+    for (const t of entry.transfers) {
+      bank += (t.outId === null ? 0 : priceOf(t.outId)) - (t.inId === null ? 0 : priceOf(t.inId));
+    }
+  }
+  return bank;
 }
 
 export interface GameweekOutcome {
@@ -160,7 +225,8 @@ export function evaluatePlan(
   gameweeks.forEach((gw, i) => {
     const entry = byGw.get(gw);
     const chip = entry?.chip ?? null;
-    const used = entry?.transfers.length ?? 0;
+    // Only a genuine in-and-out consumes a free transfer; a removal or a fill does not.
+    const used = entry?.transfers.filter(t => t.outId !== null && t.inId !== null).length ?? 0;
     const freeAvailable = banked;
 
     const chipMakesFree = chip === 'wildcard' || chip === 'freehit';

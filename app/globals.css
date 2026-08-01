@@ -127,6 +127,19 @@ dialog:modal {
   margin: auto;
 }
 
+/* The per-card remove control: present but almost invisible until you reach for it.
+ * Kept faint rather than hidden-until-hover because there is no hover on touch. */
+.card-remove {
+  opacity: 0.4;
+  transition: opacity var(--dur-short) var(--ease-out), color var(--dur-short) var(--ease-out);
+}
+
+.card-remove:hover,
+.card-remove:focus-visible {
+  opacity: 1;
+  color: var(--color-danger);
+}
+
 /* Native selects render a grey system arrow and, on Windows, white option rows that
  * make light text invisible. Replace the arrow and colour the options explicitly.
  * The chevron colour is inlined because a data: URI cannot read a custom property —

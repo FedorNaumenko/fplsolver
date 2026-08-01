@@ -115,6 +115,9 @@ type RawFixture = {
  */
 const FIXTURE_DEPTH = 10;
 
+/** The player modal shows a shorter window than the pitch — ten rows is too many there. */
+const MODAL_FIXTURES = 5;
+
 /** Next few unplayed fixtures per player, which is what the projected-points toggle reads. */
 function upcomingFixturesBySquadPlayer(
   squad: Player[],
@@ -319,7 +322,7 @@ export async function fetchPlayerDetail(playerId: number): Promise<PlayerDetailD
       bootstrap.teams.map((t: { id: number; short_name: string }) => [t.id, t])
     );
 
-    const fixtures: PlayerFixture[] = playerData.fixtures.slice(0, FIXTURE_DEPTH).map(
+    const fixtures: PlayerFixture[] = playerData.fixtures.slice(0, MODAL_FIXTURES).map(
       (f: {
         event: number;
         event_name: string;

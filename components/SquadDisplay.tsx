@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import type { Player, Team, PickInfo, PlayerFixture, Fixture } from '@/lib/types';
+import type { ChipName } from '@/lib/planning/seasonPlan';
 import { calcExpectedPoints } from '@/lib/calculations/xPts';
 import { formatPrice, getPositionName } from '@/lib/utils';
 import PlayerDetailModal from './PlayerDetailModal';
@@ -26,7 +27,30 @@ interface Props {
   fixtures: Fixture[];
   /** Minutes-multiplier divisor, shared so the pitch and the editor agree exactly. */
   gameweeksPlayed: number;
+
+  // ── Planning, driven from this view rather than a table below it ──
+  /** Absolute gameweek being viewed and planned. */
+  gameweek: number;
+  chip: ChipName | null;
+  chipOptions: ChipName[];
+  onChipChange: (chip: ChipName | null) => void;
+  freeTransfers: number;
+  hit: number;
+  saveState: 'clean' | 'dirty' | 'saved';
+  onSavePlan: () => void;
+  onClearPlan: () => void;
+  /** Remove a player from the viewed gameweek, banking the money. */
+  onRemovePlayer: (player: Player) => void;
+  /** Open the picker for an empty slot of this position. */
+  onFillSlot: (elementType: number) => void;
 }
+
+const CHIP_LABEL: Record<ChipName, string> = {
+  wildcard: 'Wildcard',
+  freehit: 'Free hit',
+  bboost: 'Bench boost',
+  '3xc': 'Triple captain',
+};
 
 const POSITION_CARD_GRADIENT: Record<number, string> = {
   1: 'var(--card-gk)',
@@ -99,7 +123,8 @@ function StatusDot({ status }: { status: Player['status'] }) {
   if (status === 'a') return null;
   return (
     <span
-      className="absolute top-0.5 right-0.5 w-2.5 h-2.5 rounded-full"
+      // Bottom-right: the top-right corner is the remove control now.
+      className="absolute bottom-0.5 right-0.5 w-2.5 h-2.5 rounded-full"
       style={{
         zIndex: 'var(--z-badge)',
         background: STATUS_TINT[status] ?? 'var(--ink-faint)',
@@ -296,7 +321,7 @@ function PlayerCard({
   player, pts, isCaptain = false, isViceCaptain = false, fixtures, size = 'starter',
   chipFrom = 0, chipCount = 1,
   isDragging = false, isTargeted = false, isSelected = false, isValidTarget = false, awaitingTarget = false,
-  onDragStart, onDragOver, onDrop, onDragEnd, onDragLeave, onClick,
+  onDragStart, onDragOver, onDrop, onDragEnd, onDragLeave, onClick, onRemove,
 }: {
   player: Player; pts: number; isCaptain?: boolean; isViceCaptain?: boolean;
   fixtures?: PlayerFixture[]; size?: 'starter' | 'bench';
@@ -306,6 +331,7 @@ function PlayerCard({
   onDragStart: (e: React.DragEvent) => void; onDragOver: (e: React.DragEvent) => void;
   onDrop: (e: React.DragEvent) => void; onDragEnd: () => void; onDragLeave: () => void;
   onClick: () => void;
+  onRemove?: () => void;
 }) {
   const isStarter = size === 'starter';
   const [photoFailed, setPhotoFailed] = useState(false);
@@ -322,15 +348,14 @@ function PlayerCard({
     : 'view details for';
 
   return (
-    <button
-      onClick={onClick}
+    <div
       draggable
       onDragStart={onDragStart}
       onDragOver={onDragOver}
       onDrop={onDrop}
       onDragEnd={onDragEnd}
       onDragLeave={onDragLeave}
-      className="select-none flex-1 min-w-0"
+      className="relative select-none flex-1 w-full min-w-0"
       style={{
         maxWidth: isStarter ? '82px' : '72px',
         opacity: isDragging ? 0.35 : 1,
@@ -338,8 +363,34 @@ function PlayerCard({
         transition: 'opacity var(--dur-short) var(--ease-out)',
         cursor: 'grab',
       }}
-      aria-label={`${player.web_name}, ${getPositionName(player.element_type)}, ${pts} points. ${describeFixtures(fixtures)}. Press to ${action} this player.`}
     >
+      {/* Remove sits above the main button rather than inside it — a button nested in a
+        * button is invalid HTML. Deliberately low contrast until hovered or focused. */}
+      {onRemove && (
+        <button
+          type="button"
+          onClick={e => { e.stopPropagation(); onRemove(); }}
+          aria-label={`Remove ${player.web_name}`}
+          title="Remove without replacing"
+          className="card-remove absolute w-5 h-5 rounded-full flex items-center justify-center leading-none"
+          style={{
+            top: '-2px',
+            right: '-2px',
+            zIndex: 'var(--z-sticky)',
+            fontSize: 'var(--text-xs)',
+            background: 'var(--shade-3)',
+            color: 'var(--ink-faint)',
+          }}
+        >
+          ×
+        </button>
+      )}
+      <button
+        type="button"
+        onClick={onClick}
+        className="block w-full text-left"
+        aria-label={`${player.web_name}, ${getPositionName(player.element_type)}, ${pts} points. ${describeFixtures(fixtures)}. Press to ${action} this player.`}
+      >
       <div
         className="rounded-lg overflow-hidden flex flex-col"
         style={{
@@ -421,7 +472,8 @@ function PlayerCard({
           <FixtureChips fixtures={fixtures} from={chipFrom} count={chipCount} />
         </div>
       </div>
-    </button>
+      </button>
+    </div>
   );
 }
 
@@ -429,12 +481,20 @@ function PlayerCard({
  * A slot whose player has been removed. Holds its place in the formation so the pitch
  * still reads as a shape rather than silently losing a row.
  */
-function EmptyCard({ elementType, size = 'starter' }: { elementType: number; size?: 'starter' | 'bench' }) {
+function EmptyCard({
+  elementType, size = 'starter', onFill,
+}: {
+  elementType: number;
+  size?: 'starter' | 'bench';
+  onFill?: () => void;
+}) {
   return (
-    <div
-      className="flex-1 min-w-0"
+    <button
+      type="button"
+      onClick={onFill}
+      className="flex-1 w-full min-w-0"
       style={{ maxWidth: size === 'starter' ? '82px' : '72px' }}
-      aria-label={`Empty ${getPositionName(elementType)} slot`}
+      aria-label={`Empty ${getPositionName(elementType)} slot — press to add a player`}
     >
       <div
         className="rounded-lg overflow-hidden flex flex-col"
@@ -450,10 +510,10 @@ function EmptyCard({ elementType, size = 'starter' }: { elementType: number; siz
           >
             {getPositionName(elementType)}
           </div>
-          <div style={{ color: 'var(--ink-faint)', fontSize: 'var(--text-xs)' }}>empty</div>
+          <div style={{ color: 'var(--color-accent)', fontSize: 'var(--text-xs)' }}>+ add</div>
         </div>
       </div>
-    </div>
+    </button>
   );
 }
 
@@ -461,6 +521,8 @@ export default function SquadDisplay({
   squad, picks, budget, teamValue, currentGameweek, teams, managerName,
   playerFixtures, onPicksChange, projGWIndex, onProjGWIndexChange,
   horizon, onHorizonChange, fixtures, gameweeksPlayed,
+  gameweek, chip, chipOptions, onChipChange, freeTransfers, hit,
+  saveState, onSavePlan, onClearPlan, onRemovePlayer, onFillSlot,
 }: Props) {
   const [selectedPlayer, setSelectedPlayer] = useState<Player | null>(null);
   const [pointsMode, setPointsMode] = useState<'total' | 'gw' | 'projected'>('total');
@@ -597,6 +659,7 @@ export default function SquadDisplay({
     isSelected: pendingSwapId === player.id,
     isValidTarget: validSwapTargets.has(player.id),
     awaitingTarget: activeSwapId !== null,
+    onRemove: () => onRemovePlayer(player),
     ...makeHandlers(player),
   });
 
@@ -658,19 +721,79 @@ export default function SquadDisplay({
               </button>
             ))}
 
+            <GameweekStepper
+              gameweek={gameweek}
+              canPrev={canNavLeft}
+              canNext={canNavRight}
+              onPrev={() => onProjGWIndexChange(projGWIndex - 1)}
+              onNext={() => onProjGWIndexChange(projGWIndex + 1)}
+            />
             {pointsMode === 'projected' && (
-              <>
-                <GameweekStepper
-                  gameweek={projGWEvent}
-                  canPrev={canNavLeft}
-                  canNext={canNavRight}
-                  onPrev={() => onProjGWIndexChange(projGWIndex - 1)}
-                  onNext={() => onProjGWIndexChange(projGWIndex + 1)}
-                />
-                <HorizonPicker value={horizon} max={fixtureDepth} onChange={onHorizonChange} />
-              </>
+              <HorizonPicker value={horizon} max={fixtureDepth} onChange={onHorizonChange} />
             )}
           </div>
+        </div>
+
+        {/* Planning strip — this is the planner now; there is no table below the pitch.
+          * Everything here applies to the gameweek the arrows are pointing at. */}
+        <div
+          className="px-4 py-2 flex flex-wrap items-center gap-x-3 gap-y-2"
+          style={{ background: 'var(--fill-1)', borderTop: '1px solid var(--rule)' }}
+        >
+          <label className="flex items-center gap-1.5" style={{ fontSize: 'var(--text-xs)', color: 'var(--ink-muted)' }}>
+            Chip
+            <select
+              value={chip ?? ''}
+              onChange={e => onChipChange((e.target.value || null) as ChipName | null)}
+              aria-label={`Chip for gameweek ${gameweek}`}
+              className="select-field rounded px-2 py-1"
+              style={{
+                // backgroundColor, not background — the shorthand resets the chevron image.
+                backgroundColor: chip ? 'var(--color-chip)' : 'var(--fill-2)',
+                color: chip ? 'var(--color-ground)' : 'var(--ink)',
+                border: '1px solid var(--rule-strong)',
+                fontSize: 'var(--text-xs)',
+              }}
+            >
+              <option value="">No chip</option>
+              {[...new Set([...(chip ? [chip] : []), ...chipOptions])].map(c => (
+                <option key={c} value={c}>{CHIP_LABEL[c]}</option>
+              ))}
+            </select>
+          </label>
+
+          <span className="num" style={{ fontSize: 'var(--text-xs)', color: 'var(--ink-muted)' }}>
+            {freeTransfers} free transfer{freeTransfers === 1 ? '' : 's'}
+          </span>
+          {hit > 0 && (
+            <span className="num font-semibold" style={{ fontSize: 'var(--text-xs)', color: 'var(--color-danger)' }}>
+              −{hit} pts hit
+            </span>
+          )}
+
+          <span className="ml-auto flex items-center gap-2">
+            <span role="status" style={{ fontSize: 'var(--text-xs)', color: 'var(--ink-muted)' }}>
+              {saveState === 'saved' && 'Saved on this device'}
+              {saveState === 'dirty' && 'Unsaved'}
+            </span>
+            <button
+              onClick={onSavePlan}
+              className="px-2.5 py-1 rounded font-semibold"
+              style={{ background: 'var(--color-accent)', color: 'var(--color-ground)', fontSize: 'var(--text-xs)' }}
+            >
+              Save plan
+            </button>
+            <button
+              onClick={onClearPlan}
+              className="px-2.5 py-1 rounded"
+              style={{
+                background: 'var(--fill-2)', color: 'var(--ink-muted)',
+                border: '1px solid var(--rule-strong)', fontSize: 'var(--text-xs)',
+              }}
+            >
+              Clear
+            </button>
+          </span>
         </div>
 
         {/* Pitch */}
@@ -694,7 +817,12 @@ export default function SquadDisplay({
                 <div className="flex justify-center gap-1 sm:gap-2">
                   {row.map(slot => (slot.player
                     ? <PlayerCard key={slot.pick.position} size="starter" {...cardProps(slot.player)} />
-                    : <EmptyCard key={slot.pick.position} elementType={slot.pick.elementType} size="starter" />
+                    : <EmptyCard
+                        key={slot.pick.position}
+                        elementType={slot.pick.elementType}
+                        size="starter"
+                        onFill={() => onFillSlot(slot.pick.elementType)}
+                      />
                   ))}
                 </div>
               </div>
@@ -732,13 +860,19 @@ export default function SquadDisplay({
           </p>
           <div className="flex justify-center gap-3 sm:gap-6">
             {benchSlots.map((slot, i) => (
-              <div key={slot.pick.position} className="flex flex-col items-center gap-1 flex-1" style={{ maxWidth: '72px' }}>
-                <span className="num font-semibold" style={{ color: 'var(--ink-faint)', fontSize: 'var(--text-xs)' }}>
+              // items-stretch, not items-center: in a column container items-center
+              // aligns horizontally, which shrank every bench card to its own name width.
+              <div key={slot.pick.position} className="flex flex-col items-stretch gap-1 flex-1 min-w-0" style={{ maxWidth: '72px' }}>
+                <span className="num font-semibold text-center" style={{ color: 'var(--ink-faint)', fontSize: 'var(--text-xs)' }}>
                   {i + 1}
                 </span>
                 {slot.player
                   ? <PlayerCard size="bench" {...cardProps(slot.player)} />
-                  : <EmptyCard elementType={slot.pick.elementType} size="bench" />}
+                  : <EmptyCard
+                      elementType={slot.pick.elementType}
+                      size="bench"
+                      onFill={() => onFillSlot(slot.pick.elementType)}
+                    />}
               </div>
             ))}
           </div>
@@ -766,6 +900,10 @@ export default function SquadDisplay({
           onClose={() => setSelectedPlayer(null)}
           onSubstitute={() => {
             setPendingSwapId(selectedPlayer.id);
+            setSelectedPlayer(null);
+          }}
+          onRemove={() => {
+            onRemovePlayer(selectedPlayer);
             setSelectedPlayer(null);
           }}
         />

@@ -117,6 +117,29 @@ try {
   const perm = { ...P.emptyPlan('1'), entries: [{ gameweek: 3, transfers: [{ outId: squadIds[0], inId: swapId }], chip: null }] };
   assert.ok(P.squadAt(basePicks, perm, 4).includes(swapId), 'an ordinary transfer must persist');
 
+  // ── picksAt: the pitch needs whole picks, not bare ids ──
+  const byId = new Map(bootstrap.elements.map(p => [p.id, p]));
+  const fhPicks3 = P.picksAt(basePicks, fh, 3, byId);
+  const fhPicks4 = P.picksAt(basePicks, fh, 4, byId);
+  assert.equal(fhPicks3.length, 15, 'picksAt must return every slot');
+  assert.deepEqual(fhPicks3.map(p => p.position), basePicks.map(p => p.position),
+    'slot positions must survive a transfer');
+  assert.ok(fhPicks3.every(p => typeof p.elementType === 'number' && p.elementType > 0),
+    'every pick must keep an elementType, or an emptied slot cannot describe itself');
+  assert.equal(fhPicks3.filter(p => p.isCaptain).length, 1, 'exactly one captain');
+  assert.notDeepEqual(fhPicks3.map(p => p.playerId), fhPicks4.map(p => p.playerId),
+    'a free-hit gameweek must differ from the one after it');
+  assert.deepEqual(fhPicks4.map(p => p.playerId), basePicks.map(p => p.playerId),
+    'the gameweek after a free hit must match the base squad again');
+  // An emptied slot keeps its position but drops its armband.
+  const emptied = { ...P.emptyPlan('1'), entries: [] };
+  const withHole = P.picksAt(
+    basePicks.map((p, i) => (i === 0 ? { ...p, playerId: null, isCaptain: false } : p)),
+    emptied, 1, byId
+  );
+  assert.equal(withHole[0].playerId, null, 'an emptied slot stays empty');
+  assert.ok(withHole[0].elementType > 0, 'an emptied slot still knows its position');
+
   // ── Chip scoring effects ──
   const base = P.evaluatePlan(P.emptyPlan('1'), evalOpts)[0];
   const bb = P.evaluatePlan({ ...P.emptyPlan('1'), entries: [{ gameweek: 1, transfers: [], chip: 'bboost' }] }, evalOpts)[0];
