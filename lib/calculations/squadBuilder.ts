@@ -42,7 +42,7 @@ export const STRATEGIES: BuildStrategy[] = ['projection', 'value', 'differential
  * players so the squad avoids the template. The hill-climb that follows optimises the
  * same quantity, so each strategy converges somewhere genuinely different.
  */
-function rankScore(strategy: BuildStrategy, xPts: number, player: Player): number {
+export function rankScore(strategy: BuildStrategy, xPts: number, player: Player): number {
   if (strategy === 'value') return xPts / Math.max(1, player.now_cost / 10);
   if (strategy === 'differential') {
     const owned = Math.min(60, Number(player.selected_by_percent) || 0);
@@ -238,13 +238,12 @@ export function buildOptimalSquad(
   return { picked, spend, total: picked.reduce((sum, s) => sum + objectiveOf(s), 0) };
   }
 
-  // The requested strategy is the objective. For the projection build, seed from all
-  // three orderings and keep whichever lands highest — a single greedy start is what
-  // let another strategy beat it on its own metric.
+  // The requested strategy is the objective. Seed from all three orderings and keep
+  // whichever lands highest: greedy plus single-swap gets stuck, and a single start let
+  // one strategy beat another on that other's own metric — which makes its label a lie.
   const objectiveOf = (s: Scored) => rankScore(strategy, s.xPts, s.player);
-  const seeds: BuildStrategy[] = strategy === 'projection' ? STRATEGIES : [strategy];
-  let run = attempt(s => rankScore(seeds[0], s.xPts, s.player), objectiveOf);
-  for (const seed of seeds.slice(1)) {
+  let run = attempt(s => rankScore(STRATEGIES[0], s.xPts, s.player), objectiveOf);
+  for (const seed of STRATEGIES.slice(1)) {
     const other = attempt(s => rankScore(seed, s.xPts, s.player), objectiveOf);
     if (other.total > run.total) run = other;
   }

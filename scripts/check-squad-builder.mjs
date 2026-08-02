@@ -46,7 +46,7 @@ try {
   assert.ok(emitted, 'tsc did not emit squadBuilder.js');
   const require_ = createRequire(import.meta.url);
   const { buildOptimalSquad } = require_(emitted);
-  const { calcExpectedPoints, xgPointsPer90 } = require_(findFile(outDir, 'xPts.js'));
+  const { calcExpectedPoints } = require_(findFile(outDir, 'xPts.js'));
   const { settingsFromBootstrap } = require_(findFile(outDir, 'squadRules.js'));
 
   const get = async path => {
@@ -73,9 +73,8 @@ try {
     const xp = calcExpectedPoints(p, fixtures, 38, 3, 0);
     assert.ok(Number.isFinite(xp), `projection is not finite for ${p.web_name}: ${xp}`);
     assert.ok(xp >= 0, `projection is negative for ${p.web_name}: ${xp}`);
-    assert.ok(Number.isFinite(xgPointsPer90(p)), `xgPointsPer90 not finite for ${p.web_name}`);
   }
-  const withXg = bootstrap.elements.filter(p => xgPointsPer90(p) > 0).length;
+  const withXg = bootstrap.elements.filter(p => calcExpectedPoints(p, fixtures, 38, 3, 0) > 0).length;
   assert.ok(withXg > 200, `expected a rate for most players, got ${withXg}`);
 
   // ── Availability: the single biggest thing the old model ignored ──
@@ -190,10 +189,25 @@ try {
   const ids = builds.map(b => b.squad.squad.map(p => p.id).sort().join(','));
   assert.equal(new Set(ids).size, builds.length,
     'each strategy must produce a genuinely different squad, not a reshuffle');
-  const best = builds.find(b => b.strategy === 'projection').squad.totalXPts;
-  for (const b of builds) {
-    assert.ok(b.squad.totalXPts <= best + 0.05,
-      `${b.strategy} (${b.squad.totalXPts}) beat the projection build (${best}) on its own metric`);
+  // Every label is a claim: "Best value" must actually be the best of the three on
+  // points per million, and so on for each. This generalises the bug that a single
+  // greedy seed caused — one strategy landing higher than another on that other's own
+  // objective, which makes the label a lie rather than a trade-off.
+  const { rankScore } = require_(findFile(outDir, 'squadBuilder.js'));
+  const score = (strategy, b) =>
+    b.squad.squad.reduce(
+      (sum, p, i) => sum + (b.squad.picks[i].multiplier > 0
+        ? rankScore(strategy, calcExpectedPoints(p, fixtures, 38, 3, 0), p)
+        : 0),
+      0
+    );
+  for (const own of STRATEGIES) {
+    const mine = score(own, builds.find(b => b.strategy === own));
+    for (const b of builds) {
+      assert.ok(score(own, b) <= mine + 0.05,
+        `${b.strategy} beats ${own} on ${own}'s own objective ` +
+        `(${score(own, b).toFixed(1)} vs ${mine.toFixed(1)}) — the label is false`);
+    }
   }
 
   const name = id => bootstrap.elements.find(p => p.id === id).web_name;

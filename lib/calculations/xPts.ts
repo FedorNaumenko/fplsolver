@@ -191,11 +191,3 @@ export function calcExpectedPoints(
 
   return Math.round(total * avail * 10) / 10;
 }
-
-/**
- * A neutral per-90 estimate, kept for callers that want a player's underlying rate with
- * no fixture attached. Same components, difficulty 3, at home.
- */
-export function xgPointsPer90(player: Player, gameweeksPlayed: number = 38): number {
-  return pointsForFixture(player, 3, true, gameweeksPlayed);
-}
