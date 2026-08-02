@@ -19,6 +19,38 @@ export const PRESEASON_GAMEWEEKS = 38;
 /** Guard against a pathological swap cycle; real runs converge in well under this. */
 const MAX_SWAP_PASSES = 200;
 
+/**
+ * How the greedy pass ranks players. The legality machinery and the hill-climb are the
+ * same for all three — only the preference order changes, so each is a defensible squad
+ * rather than a reshuffle of the same one.
+ */
+export type BuildStrategy = 'projection' | 'value' | 'differential';
+
+export const STRATEGY_LABEL: Record<BuildStrategy, string> = {
+  projection: 'Highest projection',
+  value: 'Best value',
+  differential: 'Differential',
+};
+
+export const STRATEGIES: BuildStrategy[] = ['projection', 'value', 'differential'];
+
+/**
+ * Ranking score for the greedy pass.
+ *
+ * `value` ranks on points per million, which spreads the budget instead of buying two
+ * stars and nine cheapest-available bodies. `differential` discounts heavily-owned
+ * players so the squad avoids the template. The hill-climb that follows optimises the
+ * same quantity, so each strategy converges somewhere genuinely different.
+ */
+function rankScore(strategy: BuildStrategy, xPts: number, player: Player): number {
+  if (strategy === 'value') return xPts / Math.max(1, player.now_cost / 10);
+  if (strategy === 'differential') {
+    const owned = Math.min(60, Number(player.selected_by_percent) || 0);
+    return xPts * (1 - (owned / 100) * 0.8);
+  }
+  return xPts;
+}
+
 export interface BuiltSquad {
   squad: Player[];
   picks: PickInfo[];
@@ -28,11 +60,15 @@ export interface BuiltSquad {
   bank: number;
   /** Projected points for the starting XI over the window, captain doubled. */
   totalXPts: number;
+  strategy: BuildStrategy;
 }
 
 interface Scored {
   player: Player;
+  /** True projected points — what gets reported, whatever the strategy ranked on. */
   xPts: number;
+  /** Strategy-specific ranking score, used only to order and to hill-climb. */
+  rank: number;
 }
 
 /**
@@ -68,7 +104,8 @@ export function buildOptimalSquad(
   numGW: number = 3,
   gwOffset: number = 0,
   gameweeksPlayed: number = PRESEASON_GAMEWEEKS,
-  settings: SquadSettings = DEFAULT_SETTINGS
+  settings: SquadSettings = DEFAULT_SETTINGS,
+  strategy: BuildStrategy = 'projection'
 ): BuiltSquad {
   // Destructured to the names the body already used, so the limits became
   // API-driven without touching the algorithm.
@@ -82,10 +119,10 @@ export function buildOptimalSquad(
 
   const scored: Scored[] = allPlayers
     .filter(p => p.status === 'a' && QUOTA[p.element_type] !== undefined)
-    .map(p => ({
-      player: p,
-      xPts: calcExpectedPoints(p, fixtures, gameweeksPlayed, numGW, gwOffset),
-    }));
+    .map(p => {
+      const xPts = calcExpectedPoints(p, fixtures, gameweeksPlayed, numGW, gwOffset);
+      return { player: p, xPts, rank: rankScore(strategy, xPts, p) };
+    });
 
   // Cheapest-first per position, for the feasibility bound below.
   const cheapest = new Map<number, Scored[]>(
@@ -97,6 +134,12 @@ export function buildOptimalSquad(
     ])
   );
 
+  /**
+   * Build one squad: greedy from `seedOf`'s ordering, then hill-climb on `objectiveOf`.
+   * Separating the two is what makes a multi-start search possible — the same objective
+   * reached from different starting squads.
+   */
+  function attempt(seedOf: (s: Scored) => number, objectiveOf: (s: Scored) => number) {
   const picked: Scored[] = [];
   const pickedIds = new Set<number>();
   const perPos: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0 };
@@ -135,13 +178,13 @@ export function buildOptimalSquad(
   // Objective is total points, so work down raw xPts and take whatever still leaves
   // enough budget to finish the squad.
   const byXPts = [...scored].sort(
-    (a, b) => b.xPts - a.xPts || a.player.now_cost - b.player.now_cost
+    (a, b) => seedOf(b) - seedOf(a) || a.player.now_cost - b.player.now_cost
   );
   for (const s of byXPts) {
     if (picked.length === SQUAD_SIZE) break;
     if (perPos[s.player.element_type] >= QUOTA[s.player.element_type]) continue;
     if ((perClub.get(s.player.team) ?? 0) >= MAX_PER_CLUB) continue;
-    if (s.xPts <= 0) continue; // cheap filler is chosen by the completion pass below
+    if (seedOf(s) <= 0) continue; // cheap filler is chosen by the completion pass below
     if (spend + s.player.now_cost + reserveFor(s) > BUDGET) continue;
     take(s);
   }
@@ -171,7 +214,7 @@ export function buildOptimalSquad(
       for (const cand of scored) {
         if (cand.player.element_type !== out.player.element_type) continue;
         if (pickedIds.has(cand.player.id)) continue;
-        const gain = cand.xPts - out.xPts;
+        const gain = objectiveOf(cand) - objectiveOf(out);
         if (gain <= 0 || (best && gain <= best.gain)) continue;
         if (spend - out.player.now_cost + cand.player.now_cost > BUDGET) continue;
         // The outgoing player frees a slot at his own club.
@@ -191,6 +234,21 @@ export function buildOptimalSquad(
     perClub.set(best.in.player.team, (perClub.get(best.in.player.team) ?? 0) + 1);
     spend += best.in.player.now_cost - best.out.player.now_cost;
   }
+
+  return { picked, spend, total: picked.reduce((sum, s) => sum + objectiveOf(s), 0) };
+  }
+
+  // The requested strategy is the objective. For the projection build, seed from all
+  // three orderings and keep whichever lands highest — a single greedy start is what
+  // let another strategy beat it on its own metric.
+  const objectiveOf = (s: Scored) => rankScore(strategy, s.xPts, s.player);
+  const seeds: BuildStrategy[] = strategy === 'projection' ? STRATEGIES : [strategy];
+  let run = attempt(s => rankScore(seeds[0], s.xPts, s.player), objectiveOf);
+  for (const seed of seeds.slice(1)) {
+    const other = attempt(s => rankScore(seed, s.xPts, s.player), objectiveOf);
+    if (other.total > run.total) run = other;
+  }
+  const { picked, spend } = run;
 
   const xi = chooseStartingXI(picked, STARTERS);
   const starters = picked
@@ -228,5 +286,6 @@ export function buildOptimalSquad(
       Math.round(
         starters.reduce((sum, s) => sum + s.xPts * (s.player.id === captainId ? 2 : 1), 0) * 10
       ) / 10,
+    strategy,
   };
 }

@@ -15,13 +15,18 @@ import {
   formatPrice, getPositionName, getPlayerName, getStatusDescription, sortPlayers,
   isPlayerAvailable, positionStats,
 } from '@/lib/utils';
-import { canAdd, DEFAULT_SETTINGS, type SquadSettings } from '@/lib/calculations/squadRules';
+import { canAdd, canSwap, DEFAULT_SETTINGS, type SquadSettings } from '@/lib/calculations/squadRules';
 import { calcExpectedPoints } from '@/lib/calculations/xPts';
 import { PRESEASON_GAMEWEEKS } from '@/lib/calculations/squadBuilder';
 
 interface Props {
-  /** Which position the empty slot needs. */
+  /** Which position the slot needs. */
   elementType: number;
+  /**
+   * Set when replacing a player rather than filling a hole. His price is spendable, so
+   * far more of the list is affordable than the bank alone would allow.
+   */
+  playerOut?: Player | null;
   squad: Player[];
   allPlayers: Player[];
   teams: Team[];
@@ -48,7 +53,7 @@ const SORTS: { key: SortKey; label: string }[] = [
 ];
 
 export default function PlayerPickerDialog({
-  elementType, squad, allPlayers, teams, fixtures, bank, horizon,
+  elementType, playerOut = null, squad, allPlayers, teams, fixtures, bank, horizon,
   gwOffset = 0,
   gameweeksPlayed = PRESEASON_GAMEWEEKS,
   settings = DEFAULT_SETTINGS,
@@ -99,6 +104,7 @@ export default function PlayerPickerDialog({
     const q = query.trim().toLowerCase();
     const pool = allPlayers.filter(p => {
       if (p.element_type !== elementType) return false;
+      if (playerOut && p.id === playerOut.id) return false;
       if (teamFilter !== 'all' && p.team !== teamFilter) return false;
       if (!q) return true;
       return getPlayerName(p).toLowerCase().includes(q) || p.web_name.toLowerCase().includes(q);
@@ -109,10 +115,13 @@ export default function PlayerPickerDialog({
       ? [...pool].sort((a, b) => (xPtsById.get(b.id) ?? 0) - (xPtsById.get(a.id) ?? 0))
       : sortPlayers(pool, sort as Exclude<SortKey, 'xpts'>, 'desc');
 
-    // Nobody is being sold, so only the bank is available.
     const judged = ordered.map(p => ({
       player: p,
-      verdict: canAdd(squad, p, elementType, bank, settings),
+      // Replacing sells the outgoing player, so his price joins the bank; filling an
+      // empty slot has the bank alone.
+      verdict: playerOut
+        ? canSwap(squad, playerOut, p, bank, settings)
+        : canAdd(squad, p, elementType, bank, settings),
     }));
 
     // Affordable options first, each group keeping the chosen sort. Ranking purely by
@@ -141,11 +150,11 @@ export default function PlayerPickerDialog({
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <h2 id="picker-title" className="font-bold leading-tight" style={{ fontSize: 'var(--text-lg)' }}>
-                Add a {position}
+                {playerOut ? `Replace ${playerOut.web_name}` : `Add a ${position}`}
               </h2>
               <p className="num" style={label}>
-                GW{gameweek} · up to {formatPrice(bank)} · projections over {horizon} gameweek
-                {horizon > 1 ? 's' : ''}
+                GW{gameweek} · up to {formatPrice(bank + (playerOut?.now_cost ?? 0))} · projections
+                over {horizon} gameweek{horizon > 1 ? 's' : ''}
               </p>
             </div>
             <button
@@ -253,7 +262,7 @@ export default function PlayerPickerDialog({
                     fontSize: 'var(--text-xs)',
                   }}
                 >
-                  Add
+                  {playerOut ? 'Swap in' : 'Add'}
                 </button>
               ) : (
                 <span

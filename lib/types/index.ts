@@ -73,6 +73,12 @@ export interface Player {
   goals_conceded_per_90: number;
   clean_sheets_per_90: number;
   starts_per_90: number;
+
+  // Set-piece and penalty duty. 1 means first choice; null means not on the list.
+  // Populated for 59-71 players depending on the discipline.
+  penalties_order: number | null;
+  corners_and_indirect_freekicks_order: number | null;
+  direct_freekicks_order: number | null;
 }
 
 export interface Team {

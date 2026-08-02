@@ -43,6 +43,10 @@ interface Props {
   onRemovePlayer: (player: Player) => void;
   /** Open the picker for an empty slot of this position. */
   onFillSlot: (elementType: number) => void;
+  /** Open the picker to replace a player already in the squad. */
+  onReplacePlayer: (player: Player) => void;
+  /** Present only on the suggested pre-season squad: cycle to the next build strategy. */
+  suggestion?: { label: string; total: number; onNext: () => void } | null;
 }
 
 const CHIP_LABEL: Record<ChipName, string> = {
@@ -374,8 +378,9 @@ function PlayerCard({
           title="Remove without replacing"
           className="card-remove absolute w-5 h-5 rounded-full flex items-center justify-center leading-none"
           style={{
-            top: '-2px',
-            right: '-2px',
+            // Inside the card, not straddling its rounded corner.
+            top: '3px',
+            right: '3px',
             zIndex: 'var(--z-sticky)',
             fontSize: 'var(--text-xs)',
             background: 'var(--shade-3)',
@@ -522,7 +527,8 @@ export default function SquadDisplay({
   playerFixtures, onPicksChange, projGWIndex, onProjGWIndexChange,
   horizon, onHorizonChange, fixtures, gameweeksPlayed,
   gameweek, chip, chipOptions, onChipChange, freeTransfers, hit,
-  saveState, onSavePlan, onClearPlan, onRemovePlayer, onFillSlot,
+  saveState, onSavePlan, onClearPlan, onRemovePlayer, onFillSlot, onReplacePlayer,
+  suggestion = null,
 }: Props) {
   const [selectedPlayer, setSelectedPlayer] = useState<Player | null>(null);
   const [pointsMode, setPointsMode] = useState<'total' | 'gw' | 'projected'>('total');
@@ -552,7 +558,6 @@ export default function SquadDisplay({
   const emptyCount = slots.filter(s => s.player === null).length;
 
   const starters = starterSlots.map(s => s.player).filter(Boolean) as Player[];
-  const bench = benchSlots.map(s => s.player).filter(Boolean) as Player[];
 
   // Grouped on the pick's own elementType, which an empty slot still knows.
   const pitchRows = [1, 2, 3, 4].map(t => starterSlots.filter(s => s.pick.elementType === t));
@@ -687,6 +692,28 @@ export default function SquadDisplay({
               <h2 className="mt-2 font-semibold" style={{ color: 'var(--ink)', fontSize: 'var(--text-base)' }}>
                 {managerName}
               </h2>
+              {/* The builder is deterministic, so one squad was the only squad. Each
+                * strategy is a different defensible answer, with its own total shown so
+                * the trade-off is visible rather than the squad just changing. */}
+              {suggestion && (
+                <div className="flex items-center gap-2 mt-1.5">
+                  <span className="num" style={{ color: 'var(--ink-muted)', fontSize: 'var(--text-xs)' }}>
+                    {suggestion.label} · {suggestion.total} pts
+                  </span>
+                  <button
+                    onClick={suggestion.onNext}
+                    className="px-2.5 py-1 rounded font-semibold"
+                    style={{
+                      background: 'var(--fill-2)',
+                      color: 'var(--ink)',
+                      border: '1px solid var(--rule-strong)',
+                      fontSize: 'var(--text-xs)',
+                    }}
+                  >
+                    Suggest another
+                  </button>
+                </div>
+              )}
             </div>
 
             <div className="flex gap-5">
@@ -904,6 +931,10 @@ export default function SquadDisplay({
           }}
           onRemove={() => {
             onRemovePlayer(selectedPlayer);
+            setSelectedPlayer(null);
+          }}
+          onReplace={() => {
+            onReplacePlayer(selectedPlayer);
             setSelectedPlayer(null);
           }}
         />

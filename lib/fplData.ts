@@ -15,7 +15,7 @@ import type {
 } from '@/lib/types';
 import { generateTransferSuggestions } from '@/lib/calculations/transferSuggestions';
 import { planMultipleTransfers } from '@/lib/calculations/multiTransfer';
-import { buildOptimalSquad, PRESEASON_GAMEWEEKS } from '@/lib/calculations/squadBuilder';
+import { buildOptimalSquad, PRESEASON_GAMEWEEKS, type BuildStrategy } from '@/lib/calculations/squadBuilder';
 import { settingsFromBootstrap, type SquadSettings } from '@/lib/calculations/squadRules';
 import { transferRulesFromBootstrap, type ChipDef, type TransferRules } from '@/lib/planning/seasonPlan';
 
@@ -258,6 +258,10 @@ export async function fetchTransfers(
 export interface PreseasonData extends TeamData {
   allPlayers: Player[];
   settings: SquadSettings;
+  /** Which ranking built this squad, so the pitch can say so. */
+  strategy: BuildStrategy;
+  /** The squad's own projected total, for comparing strategies honestly. */
+  projectedTotal: number;
 }
 
 /**
@@ -265,7 +269,10 @@ export interface PreseasonData extends TeamData {
  * can find for the upcoming window. Shaped as TeamData so SquadDisplay, the drag-drop
  * subs and the projected-points toggle all work on it unchanged.
  */
-export async function fetchPreseasonSquad(gwOffsetRaw: number = 0): Promise<PreseasonData> {
+export async function fetchPreseasonSquad(
+  gwOffsetRaw: number = 0,
+  strategy: BuildStrategy = 'projection'
+): Promise<PreseasonData> {
   const gwOffset = Math.max(0, Math.min(FIXTURE_DEPTH - 1, Number(gwOffsetRaw) || 0));
   const [bootstrap, fixtures] = await Promise.all([
     FPLApi.getBootstrapStatic(),
@@ -284,7 +291,8 @@ export async function fetchPreseasonSquad(gwOffsetRaw: number = 0): Promise<Pres
     3,
     gwOffset,
     PRESEASON_GAMEWEEKS,
-    settings
+    settings,
+    strategy
   );
   const nextGameweek: number =
     (bootstrap.events as GameweekData[]).find(e => e.is_next)?.id ?? 1;
@@ -297,6 +305,8 @@ export async function fetchPreseasonSquad(gwOffsetRaw: number = 0): Promise<Pres
     currentGameweek: nextGameweek,
     teams,
     managerName: `Suggested GW${nextGameweek} squad`,
+    strategy,
+    projectedTotal: built.totalXPts,
     playerFixtures: upcomingFixturesBySquadPlayer(built.squad, fixtures, teamMap),
     gameweeksPlayed: PRESEASON_GAMEWEEKS,
     chips: (bootstrap.chips ?? []) as ChipDef[],

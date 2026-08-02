@@ -42,17 +42,30 @@ export interface GameweekEntry {
   chip: ChipName | null;
 }
 
-/** Versioned so a later model change can migrate rather than misread stored plans. */
-export const PLAN_VERSION = 1;
+/**
+ * Versioned so a later model change can migrate rather than misread stored plans.
+ * Bumped to 2 when `basePicks` was added: a v1 plan has no squad recorded, so replaying
+ * it against a rebuilt fifteen would silently drop transfers. Old plans are discarded.
+ */
+export const PLAN_VERSION = 2;
 
 export interface SeasonPlan {
   version: number;
   managerId: string;
+  /**
+   * The squad the plan was written against.
+   *
+   * Without this, `basePicks` came from a freshly built squad on every load, and
+   * squadAt resolves a transfer by `slots.indexOf(t.outId)` — a player missing from the
+   * rebuilt fifteen makes that -1 and the transfer disappears without a word. It only
+   * ever worked because the builder is deterministic.
+   */
+  basePicks: PickInfo[];
   entries: GameweekEntry[];
 }
 
-export function emptyPlan(managerId: string): SeasonPlan {
-  return { version: PLAN_VERSION, managerId, entries: [] };
+export function emptyPlan(managerId: string, basePicks: PickInfo[] = []): SeasonPlan {
+  return { version: PLAN_VERSION, managerId, basePicks, entries: [] };
 }
 
 /** FPL banks one free transfer per gameweek, capped by max_extra_free_transfers + 1. */
@@ -293,6 +306,8 @@ export function loadPlan(managerId: string): SeasonPlan | null {
     const parsed = JSON.parse(raw) as SeasonPlan;
     // Refuse anything not written by this version rather than misreading it.
     if (parsed?.version !== PLAN_VERSION || !Array.isArray(parsed.entries)) return null;
+    // A plan with no recorded squad cannot be replayed safely.
+    if (!Array.isArray(parsed.basePicks) || parsed.basePicks.length === 0) return null;
     return parsed;
   } catch {
     return null;

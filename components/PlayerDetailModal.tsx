@@ -11,6 +11,7 @@ interface Props {
   onClose: () => void;
   onSubstitute?: () => void;
   onRemove?: () => void;
+  onReplace?: () => void;
 }
 
 interface PlayerDetail {
@@ -34,7 +35,7 @@ const STATUS_LABEL: Record<string, string> = {
   u: 'Unavailable',
 };
 
-export default function PlayerDetailModal({ player, teams, onClose, onSubstitute, onRemove }: Props) {
+export default function PlayerDetailModal({ player, teams, onClose, onSubstitute, onRemove, onReplace }: Props) {
   const [detail, setDetail] = useState<PlayerDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -117,17 +118,30 @@ export default function PlayerDetailModal({ player, teams, onClose, onSubstitute
           )}
 
           {/* The touch- and keyboard-reachable routes into changing the squad. */}
-          {(onSubstitute || onRemove) && (
+          {(onSubstitute || onRemove || onReplace) && (
             <div className="mt-3 flex gap-2">
-              {onSubstitute && (
+              {onReplace && (
                 <button
-                  onClick={() => { onSubstitute(); ref.current?.close(); }}
+                  onClick={() => { onReplace(); ref.current?.close(); }}
                   className="flex-1 py-2 rounded-lg font-semibold"
                   style={{
                     background: 'var(--color-accent)',
                     color: 'var(--color-ground)',
                     fontSize: 'var(--text-sm)',
-                    transition: 'opacity var(--dur-short) var(--ease-out)',
+                  }}
+                >
+                  Transfer out
+                </button>
+              )}
+              {onSubstitute && (
+                <button
+                  onClick={() => { onSubstitute(); ref.current?.close(); }}
+                  className="flex-1 py-2 rounded-lg font-semibold"
+                  style={{
+                    background: 'var(--fill-2)',
+                    border: '1px solid var(--rule-strong)',
+                    color: 'var(--ink)',
+                    fontSize: 'var(--text-sm)',
                   }}
                 >
                   Substitute

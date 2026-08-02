@@ -8,6 +8,7 @@ import PlayerPickerDialog from '@/components/PlayerPickerDialog';
 import type { Player, PickInfo, PlayerFixture } from '@/lib/types';
 import { fetchTeamData, fetchTransfers, fetchPlayerDetail, fetchPreseasonSquad, FplNotice } from '@/lib/fplData';
 import { canSwap, canAdd, ensureArmbands } from '@/lib/calculations/squadRules';
+import { STRATEGIES, STRATEGY_LABEL, type BuildStrategy } from '@/lib/calculations/squadBuilder';
 import {
   emptyPlan, picksAt, bankAt, evaluatePlan, availableChips, savePlan, loadPlan, clearPlan,
   type SeasonPlan, type ChipName,
@@ -40,16 +41,61 @@ export default function Home() {
   const [startingBank, setStartingBank] = useState<number>(0);
   const [localPlayerFixtures, setLocalPlayerFixtures] = useState<Record<number, PlayerFixture[]>>({});
   const [saveState, setSaveState] = useState<'clean' | 'dirty' | 'saved'>('clean');
-  /** elementType of the empty slot being filled, or null when the picker is closed. */
-  const [fillSlot, setFillSlot] = useState<number | null>(null);
+  /**
+   * What the picker is open for: an empty slot of some position, optionally replacing a
+   * player already in the squad. Null when it is closed.
+   */
+  /** Which ranking built the suggested pre-season squad. */
+  const [strategy, setStrategy] = useState<BuildStrategy>('projection');
+  const [picking, setPicking] = useState<{ elementType: number; playerOut: Player | null } | null>(null);
 
   useEffect(() => {
     if (teamData) {
-      setBasePicks(teamData.picks);
+      // basePicks is deliberately NOT set here — handleLoad decides whether it comes
+      // from a stored plan or from a fresh build, and this effect would overwrite it.
       setStartingBank(teamData.budget);
       setLocalPlayerFixtures(teamData.playerFixtures);
     }
   }, [teamData]);
+
+  /**
+   * A saved plan carries the squad it was written against; replaying it over a freshly
+   * built fifteen would silently drop any transfer whose player is no longer there.
+   */
+  const restorePlan = (id: string, freshPicks: PickInfo[]) => {
+    const stored = loadPlan(id);
+    if (stored) {
+      setPlan(stored);
+      setBasePicks(stored.basePicks);
+      setSaveState('saved');
+    } else {
+      setPlan(emptyPlan(id, freshPicks));
+      setBasePicks(freshPicks);
+      setSaveState('clean');
+    }
+  };
+
+  /**
+   * Rebuild the suggested squad with the next ranking. This discards the current plan by
+   * design — the base fifteen changes, so replaying transfers over it would be replaying
+   * them against a squad they were never written for.
+   */
+  const cycleStrategy = async () => {
+    if (!preseason) return;
+    const next = STRATEGIES[(STRATEGIES.indexOf(strategy) + 1) % STRATEGIES.length];
+    setStrategy(next);
+    setLoading(true);
+    try {
+      const built = await fetchPreseasonSquad(0, next);
+      setPreseason(built);
+      setTeamData(built);
+      setPlan(emptyPlan(managerId, built.picks));
+      setBasePicks(built.picks);
+      setSaveState('clean');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleLoad = async (id: string) => {
     setLoading(true);
@@ -68,9 +114,7 @@ export default function Home() {
       ]);
       setTeamData(team);
       setTransfersData(transfers);
-      const stored = loadPlan(id);
-      setPlan(stored ?? emptyPlan(id));
-      setSaveState(stored ? 'saved' : 'clean');
+      restorePlan(id, team.picks);
     } catch (err) {
       if (err instanceof FplNotice) {
         setNotice(err.message);
@@ -80,9 +124,7 @@ export default function Home() {
           const built = await fetchPreseasonSquad(0);
           setPreseason(built);
           setTeamData(built);
-          const stored = loadPlan(id);
-          setPlan(stored ?? emptyPlan(id));
-          setSaveState(stored ? 'saved' : 'clean');
+          restorePlan(id, built.picks);
         } catch {
           // notice on its own is still a useful answer
         }
@@ -225,7 +267,7 @@ export default function Home() {
   const handleReset = () => {
     if (!teamData) return;
     setBasePicks(teamData.picks);
-    setPlan(emptyPlan(managerId));
+    setPlan(emptyPlan(managerId, teamData.picks));
     setStartingBank(teamData.budget);
     setLocalPlayerFixtures(teamData.playerFixtures);
     setSaveState('clean');
@@ -306,7 +348,13 @@ export default function Home() {
               horizon={horizon}
               onHorizonChange={handleHorizonChange}
               onRemovePlayer={handleRemovePlayer}
-              onFillSlot={setFillSlot}
+              onFillSlot={et => setPicking({ elementType: et, playerOut: null })}
+              onReplacePlayer={p => setPicking({ elementType: p.element_type, playerOut: p })}
+              suggestion={preseason ? {
+                label: STRATEGY_LABEL[preseason.strategy],
+                total: preseason.projectedTotal,
+                onNext: () => void cycleStrategy(),
+              } : null}
               gameweek={viewedGameweek}
               chip={plan.entries.find(e => e.gameweek === viewedGameweek)?.chip ?? null}
               chipOptions={availableChips(teamData.chips, viewedGameweek, plan)}
@@ -314,8 +362,13 @@ export default function Home() {
               freeTransfers={outcome?.freeAvailable ?? 0}
               hit={outcome?.hit ?? 0}
               saveState={saveState}
-              onSavePlan={() => { savePlan(plan); setSaveState('saved'); }}
-              onClearPlan={() => { clearPlan(managerId); setPlan(emptyPlan(managerId)); setSaveState('clean'); }}
+              onSavePlan={() => { savePlan({ ...plan, basePicks }); setSaveState('saved'); }}
+              onClearPlan={() => {
+                clearPlan(managerId);
+                setPlan(emptyPlan(managerId, teamData.picks));
+                setBasePicks(teamData.picks);
+                setSaveState('clean');
+              }}
             />
             {hasChanges && (
               <div className="flex mt-2">
@@ -350,9 +403,10 @@ export default function Home() {
             transfersLoading={transfersLoading}
           />
         )}
-        {fillSlot !== null && teamData && (
+        {picking && teamData && (
           <PlayerPickerDialog
-            elementType={fillSlot}
+            elementType={picking.elementType}
+            playerOut={picking.playerOut}
             squad={viewSquad}
             allPlayers={preseason?.allPlayers ?? teamData.squad}
             teams={teamData.teams}
@@ -363,8 +417,14 @@ export default function Home() {
             gameweeksPlayed={teamData.gameweeksPlayed}
             settings={preseason?.settings}
             gameweek={viewedGameweek}
-            onPick={player => { void handleAddPlayer(fillSlot, player); setFillSlot(null); }}
-            onClose={() => setFillSlot(null)}
+            onPick={player => {
+              // Replacing routes through the transfer handler so the outgoing player's
+              // price funds the incoming one; filling a hole spends the bank alone.
+              if (picking.playerOut) void handleApplyTransfer(picking.playerOut, player);
+              else void handleAddPlayer(picking.elementType, player);
+              setPicking(null);
+            }}
+            onClose={() => setPicking(null)}
           />
         )}
       </main>
