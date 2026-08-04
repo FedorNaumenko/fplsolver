@@ -1,12 +1,14 @@
 # FPL Solver
 
+![FPL Solver walkthrough — loading a squad, switching between season, gameweek and projected points, and planning transfers ahead](docs/demo.gif)
+
 Fantasy Premier League Transfer Advisor — a Next.js web app that helps FPL managers make smarter transfer decisions based on form, fixture difficulty, and expected points modelling.
 
 ## Features
 
 - **Pitch view** — visualise your squad in a GK → DEF → MID → FWD layout with real FPL player photos and position-coloured cards
 - **Points toggle** — switch between season total, current GW actual points, or projected points for any of the next 3 upcoming gameweeks
-- **Projected points** — estimates per player using blended form/PPG × fixture difficulty × minutes multiplier
+- **Projected points** — a component model summing how FPL actually awards points: appearance, goals (xG90), assists (xA90), clean sheet as a Poisson zero, goals conceded, saves, bonus and cards. Fixture difficulty and home advantage scale only the attacking and clean-sheet terms; availability (`chance_of_playing_next_round`) scales everything; points-per-game acts as a light prior
 - **Drag & drop substitutions** — drag any player card onto another to swap; formation rules enforced (GK↔GK only for keepers, valid 3-4-3/4-3-3/etc. for outfield)
 - **Transfer suggestions** — single and multi-transfer plans (1, 2, 3, wildcard) ranked by expected points gain, recalculated per projected GW
 - **Apply transfers** — preview your squad after a suggested transfer with live budget and 3-per-club constraint validation
